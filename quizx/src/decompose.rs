@@ -161,6 +161,11 @@ impl<G: GraphLike> Decomposer<G> {
     pub fn decomp_top(&mut self) -> &mut Self {
         let (depth, g) = self.stack.pop_back().unwrap();
         if self.use_cats {
+            let ap = Decomposer::ap(&g); 
+            if !ap.is_empty() {
+                return self.push_cat_decomp(depth, &g, &ap);
+            }
+            
             let cat_nodes = Decomposer::cat_ts(&g); //gadget_ts(&g);
                                                     //println!("{:?}", gadget_nodes);
                                                     //let nts = cat_nodes.iter().fold(0, |acc, &x| if g.phase(x).denom() == &4 { acc + 1 } else { acc });
@@ -288,6 +293,86 @@ impl<G: GraphLike> Decomposer<G> {
         }
 
         t
+    }
+
+    // Adapated from https://docs.rs/graphalgs/latest/src/graphalgs/connect/articulation_points.rs.html
+    fn dfs_helper(
+        graph: &G,//changed
+        v: V,
+        p: V,
+        is_cut_point: &mut Vec<bool>,
+        cut_points: &mut Vec<V>,//changed
+        visited: &mut Vec<bool>,
+        timer: &mut usize,
+        tin: &mut Vec<usize>,
+        fup: &mut Vec<usize>,
+    )
+    {
+        visited[v] = true;
+        *timer += 1;
+        tin[v] = *timer;
+        fup[v] = *timer;
+        let mut children = 0usize;
+    
+        for n in graph.neighbors(v) {
+            if n == p {
+                continue;
+            }
+            if visited[n] {
+                fup[v] = fup[v].min(tin[n]);
+            } else {
+                Decomposer::dfs_helper(
+                    graph,
+                    n,
+                    v,
+                    is_cut_point,
+                    cut_points,
+                    visited,
+                    timer,
+                    tin,
+                    fup,
+                );
+                fup[v] = fup[v].min(fup[n]);
+                if fup[n] >= tin[v] && p < graph.vindex() && !is_cut_point[v] {
+                    is_cut_point[v] = true;
+                    cut_points.push(v);
+                }
+                children += 1;
+            }
+        }
+    
+        if p > graph.vindex() && children > 1 && !is_cut_point[v] {
+            is_cut_point[v] = true;
+            cut_points.push(v);
+        }
+    }
+
+    // Gets a cat3 or cat5 state which contains an articulation point
+    pub fn ap(g: &G) -> Vec<V> {
+        let mut cut_points = Vec::new();
+        let mut visited = vec![false; g.vindex()];
+        let mut is_cut_point = vec![false; g.vindex()];
+        let mut tin = vec![0usize; g.vindex()];
+        let mut fup = vec![0usize; g.vindex()];
+        let mut timer = 0usize;
+        for v in g.vertices() {
+            if g.phase(v).denom() == &1 && !visited[v] {
+                let mut neigh = g.neighbor_vec(v);
+                if [3, 5].contains(&neigh.len()) {
+                    Decomposer::dfs_helper(
+                        g, 
+                        v, 
+                        g.vindex() + 1, 
+                        &mut is_cut_point, 
+                        &mut cut_points, 
+                        &mut visited, 
+                        &mut timer, 
+                        &mut tin, 
+                        &mut fup);
+                }
+            }
+        }
+        cut_points
     }
 
     /// Returns a best occurrence of a cat state
