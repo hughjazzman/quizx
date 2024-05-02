@@ -161,11 +161,6 @@ impl<G: GraphLike> Decomposer<G> {
     pub fn decomp_top(&mut self) -> &mut Self {
         let (depth, g) = self.stack.pop_back().unwrap();
         if self.use_cats {
-            let ap = Decomposer::ap(&g); 
-            if !ap.is_empty() {
-                return self.push_cat_decomp(depth, &g, &ap);
-            }
-            
             let cat_nodes = Decomposer::cat_ts(&g); //gadget_ts(&g);
                                                     //println!("{:?}", gadget_nodes);
                                                     //let nts = cat_nodes.iter().fold(0, |acc, &x| if g.phase(x).denom() == &4 { acc + 1 } else { acc });
@@ -357,7 +352,7 @@ impl<G: GraphLike> Decomposer<G> {
         let mut timer = 0usize;
         for v in g.vertices() {
             if g.phase(v).denom() == &1 && !visited[v] {
-                let mut neigh = g.neighbor_vec(v);
+                let neigh = g.neighbor_vec(v);
                 if [3, 5].contains(&neigh.len()) {
                     Decomposer::dfs_helper(
                         g, 
@@ -382,6 +377,15 @@ impl<G: GraphLike> Decomposer<G> {
         let prefered_order = [4, 6, 5, 3];
         let mut res = vec![];
         let mut index = None;
+
+        let aps = Decomposer::ap(g); 
+        if !aps.is_empty() {
+            res = vec![aps[0]];
+            let mut neigh = g.neighbor_vec(aps[0]);
+            res.append(&mut neigh);
+            return res;
+        }
+
         for v in g.vertices() {
             if g.phase(v).denom() == &1 {
                 let mut neigh = g.neighbor_vec(v);
