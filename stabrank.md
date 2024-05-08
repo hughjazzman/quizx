@@ -14,7 +14,7 @@ or the exact version used in the paper with:
 In either case, build `quizx` via:
 
     cd quizx/quizx
-    cargo build --release
+    cargo build --release --examples
 
 The data itself is generated using two binaries, `pauli_gadget_stabrank` and `hidden_shift_stabrank`. These take several parameters as input, including a random seed, and produce a single row of CSV data (in its own file) as output. The easiest way to run these is by using the shell scripts found in the [scripts](scripts) folder. To produce the exact data used in the paper, you can run these commands from the root of git repo:
 
