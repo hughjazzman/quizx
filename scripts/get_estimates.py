@@ -20,12 +20,12 @@ def parse_data(values):
 def main():
     parser = argparse.ArgumentParser(description='Process some files.')
     parser.add_argument('-f', '--is_file', action='store_true', help='Flag indicating if the input is a file.', required=False, default=False)
-    parser.add_argument('-d', '--directory', help='The directory containing the files.', required=False, default='data_pg_ap')
+    parser.add_argument('-d', '--directory', help='The directory containing the files.', required=False, default='data_ap')
     parser.add_argument('-nq', '--num_qubits', type=int, help='The number of qubits.', required=False, default=50)
     parser.add_argument('-nc', '--num_ccz', type=int, help='The number of CCZ gates.', required=False, default=30)
     parser.add_argument('-s', '--seed', type=int, help='The seed value.', required=False, default=1077)
     parser.add_argument('-c', '--compare_directories', action='store_true', help='Flag indicating if directories should be compared.', required=False, default=False)
-    parser.add_argument('-d2', '--second_directory', help='The second directory to compare.', required=False, default='data_pg_og')
+    parser.add_argument('-d2', '--second_directory', help='The second directory to compare.', required=False, default='data_og')
     args = parser.parse_args()
 
     is_file = args.is_file
@@ -52,7 +52,7 @@ def main():
                 r = csv.reader(f)
                 data = list(r)
             data = parse_data(data[0])
-            d[filename] = [int(data["terms"])]
+            d[filename] = [int(data["terms"]), None]
             
         for filename in os.listdir(second_directory):
             filepath = os.path.join(second_directory, filename)
@@ -61,10 +61,10 @@ def main():
                 data = list(r)
             data = parse_data(data[0])
             if filename not in d:
-                d[filename] = [None]
-            d[filename].append(int(data["terms"]))
-        for k, v in d.items():
-            print(k, v, v[0] < v[1])
+                d[filename] = [None, None]
+            d[filename][1] = int(data["terms"])
+        for k, v in sorted(d.items()):
+            print(k, v, v[0] < v[1] if None not in v else None)
 
     else:
         d = []
