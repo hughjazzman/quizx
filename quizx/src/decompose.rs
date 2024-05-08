@@ -292,23 +292,23 @@ impl<G: GraphLike> Decomposer<G> {
 
     // Adapated from https://docs.rs/graphalgs/latest/src/graphalgs/connect/articulation_points.rs.html
     fn dfs_helper(
-        graph: &G,//changed
+        graph: &G,
         v: V,
         p: V,
         is_cut_point: &mut Vec<bool>,
-        cut_points: &mut Vec<V>,//changed
+        cut_points: &mut Vec<V>,
+        num_children: &mut Vec<usize>,
         visited: &mut Vec<bool>,
         timer: &mut usize,
         tin: &mut Vec<usize>,
         fup: &mut Vec<usize>,
-    )
-    {
+    ) {
         visited[v] = true;
         *timer += 1;
         tin[v] = *timer;
         fup[v] = *timer;
         let mut children = 0usize;
-    
+
         for n in graph.neighbors(v) {
             if n == p {
                 continue;
@@ -322,12 +322,16 @@ impl<G: GraphLike> Decomposer<G> {
                     v,
                     is_cut_point,
                     cut_points,
+                    num_children,
                     visited,
                     timer,
                     tin,
                     fup,
                 );
                 fup[v] = fup[v].min(fup[n]);
+                // if fup[v] != 0 {
+                //     println!("fup[{}]: {}", v, fup[v]);
+                // }
                 if fup[n] >= tin[v] && p < graph.vindex() && !is_cut_point[v] {
                     is_cut_point[v] = true;
                     cut_points.push(v);
@@ -335,16 +339,18 @@ impl<G: GraphLike> Decomposer<G> {
                 children += 1;
             }
         }
-    
+
         if p > graph.vindex() && children > 1 && !is_cut_point[v] {
             is_cut_point[v] = true;
             cut_points.push(v);
+            num_children.push(children);
         }
     }
 
-    // Gets a cat3 or cat5 state which contains an articulation point
+    // Gets the Clifford spiders that are articulation points, and are part of cat3 or cat5 states
     pub fn ap(g: &G) -> Vec<V> {
         let mut cut_points = Vec::new();
+        let mut num_children = Vec::new();
         let mut visited = vec![false; g.vindex()];
         let mut is_cut_point = vec![false; g.vindex()];
         let mut tin = vec![0usize; g.vindex()];
@@ -354,37 +360,49 @@ impl<G: GraphLike> Decomposer<G> {
             if g.phase(v).denom() == &1 && !visited[v] {
                 let neigh = g.neighbor_vec(v);
                 if [3, 5].contains(&neigh.len()) {
+                    // println!("neigh_len: {}", &neigh.len());
+                    // println!("v: {}", v);
                     Decomposer::dfs_helper(
-                        g, 
-                        v, 
-                        g.vindex() + 1, 
-                        &mut is_cut_point, 
-                        &mut cut_points, 
-                        &mut visited, 
-                        &mut timer, 
-                        &mut tin, 
-                        &mut fup);
+                        g,
+                        v,
+                        g.vindex() + 1,
+                        &mut is_cut_point,
+                        &mut cut_points,
+                        &mut num_children,
+                        &mut visited,
+                        &mut timer,
+                        &mut tin,
+                        &mut fup,
+                    );
                 }
             }
         }
+        // println!("visited: {:?}", visited);
+        // println!("is_cut_point: {:?}", is_cut_point);
+        // println!("tin: {:?}", tin);
+        // println!("fup: {:?}", fup);
+        // cut_points.sort_by_key(|&v| num_children[v]);
+        // cut_points.reverse();
         cut_points
     }
 
     /// Returns a best occurrence of a cat state
-    /// The fist vertex in the result is the Clifford spider
+    /// The first vertex in the result is the Clifford spider
     pub fn cat_ts(g: &G) -> Vec<V> {
         // the graph g is supposed to be completely simplified
         let prefered_order = [4, 6, 5, 3];
         let mut res = vec![];
         let mut index = None;
 
-        let aps = Decomposer::ap(g); 
-        if !aps.is_empty() {
-            res = vec![aps[0]];
-            let mut neigh = g.neighbor_vec(aps[0]);
-            res.append(&mut neigh);
-            return res;
-        }
+        // let aps = Decomposer::ap(g);
+        // // println!("APs: {:?}", aps);
+        // if !aps.is_empty() {
+        //     println!("APs: {:?}", aps);
+        //     res = vec![aps[0]];
+        //     let mut neigh = g.neighbor_vec(aps[0]);
+        //     res.append(&mut neigh);
+        //     return res;
+        // }
 
         for v in g.vertices() {
             if g.phase(v).denom() == &1 {

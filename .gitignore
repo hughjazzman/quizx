@@ -3,6 +3,6 @@ target
 *.so
 build
 dist
-data
+data*
 quizx.egg-info
 libquizx.egg-info

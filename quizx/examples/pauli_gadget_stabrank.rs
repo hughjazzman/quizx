@@ -104,6 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let time_single = Instant::now();
             let mut d = Decomposer::new(&h);
+            d.use_cats(true);
             d.with_full_simp();
 
             let d = d.decomp_parallel(3);
