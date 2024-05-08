@@ -196,7 +196,10 @@ pub fn fuse_gadgets(g: &mut impl GraphLike) -> bool {
             let degree = vs.len() as i32;
             fused = true;
             let mut ph = Rational64::zero();
-            for (u, v) in gs.iter().copied() {
+
+            let mut iter = gs.iter().copied();
+            iter.next(); // Skip the first element
+            for (u, v) in iter {
                 ph += g.phase(v);
                 g.remove_vertex(u);
                 g.remove_vertex(v);
