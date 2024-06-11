@@ -205,27 +205,27 @@ impl<G: GraphLike> Decomposer<G> {
                 return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
             }
 
-            // let (vs, eff_a, min_eff_a) = Decomposer::cut_v(&g);
+            let (vs, _, eff_a) = Decomposer::cut_v(&g);
 
-            // if eff_a >= 0.0
-            //     && ((nts == 6 && eff_a < 0.263) || (nts == 5 && eff_a < 0.316) || eff_a < 0.4)
-            // {
-            //     // println!("using cut!");
-            //     println!("eff_a {:?}", eff_a);
-            //     let mut i = 1;
-            //     for v in vs {
-            //         let mut nv = vec![v];
-            //         nv.extend(g.neighbor_vec(v));
-            //         self.push_decomp(
-            //             &[Decomposer::cut_pair0, Decomposer::cut_pair1],
-            //             depth + i,
-            //             &g,
-            //             &nv,
-            //         );
-            //         i += 1;
-            //     }
-            //     return self;
-            // }
+            if eff_a >= 0.0
+                && ((nts == 6 && eff_a < 0.263) || (nts == 5 && eff_a < 0.316) || eff_a < 0.4)
+            {
+                // println!("using cut!");
+                println!("eff_a {:?}", eff_a);
+                let mut i = 1;
+                for v in vs {
+                    let mut nv = vec![v];
+                    nv.extend(g.neighbor_vec(v));
+                    self.push_decomp(
+                        &[Decomposer::cut_pair0, Decomposer::cut_pair1],
+                        depth + i,
+                        &g,
+                        &nv,
+                    );
+                    i += 1;
+                }
+                return self;
+            }
 
             if !cat_nodes.is_empty() {
                 // println!("using cat!");
@@ -286,29 +286,29 @@ impl<G: GraphLike> Decomposer<G> {
                         return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
                     }
 
-                    // let (vs, eff_a, min_eff_a) = Decomposer::cut_v(&g);
+                    let (vs, _, eff_a) = Decomposer::cut_v(&g);
 
-                    // if eff_a >= 0.0
-                    //     && ((nts == 6 && eff_a < 0.263)
-                    //         || (nts == 5 && eff_a < 0.316)
-                    //         || eff_a < 0.4)
-                    // {
-                    //     // println!("using cut!");
-                    //     println!("eff_a {:?}", eff_a);
-                    //     let mut i = 1;
-                    //     for v in vs {
-                    //         let mut nv = vec![v];
-                    //         nv.extend(g.neighbor_vec(v));
-                    //         self.push_decomp(
-                    //             &[Decomposer::cut_pair0, Decomposer::cut_pair1],
-                    //             depth + i,
-                    //             &g,
-                    //             &nv,
-                    //         );
-                    //         i += 1;
-                    //     }
-                    //     return self;
-                    // }
+                    if eff_a >= 0.0
+                        && ((nts == 6 && eff_a < 0.263)
+                            || (nts == 5 && eff_a < 0.316)
+                            || eff_a < 0.4)
+                    {
+                        // println!("using cut!");
+                        println!("eff_a {:?}", eff_a);
+                        let mut i = 1;
+                        for v in vs {
+                            let mut nv = vec![v];
+                            nv.extend(g.neighbor_vec(v));
+                            self.push_decomp(
+                                &[Decomposer::cut_pair0, Decomposer::cut_pair1],
+                                depth + i,
+                                &g,
+                                &nv,
+                            );
+                            i += 1;
+                        }
+                        return self;
+                    }
 
                     if !cat_nodes.is_empty() {
                         // println!("using cat!");
@@ -424,14 +424,22 @@ impl<G: GraphLike> Decomposer<G> {
     
         intersection.len() as f64 / union.len() as f64
     }
+
+    fn uncommon_elements(a: &HashSet<V>, b: &HashSet<V>) -> HashSet<V> {
+        a.union(b).cloned().collect::<HashSet<_>>()
+            .difference(&a.intersection(b).cloned().collect::<HashSet<_>>())
+            .cloned().collect()
+    }
+    
     
 
-    pub fn cut_v(g: &G) -> (Vec<V>, f64, f64) {
-        let mut vertices_with_denom_1 = Vec::new();
-        let mut vs = Vec::new();
-        let mut min_eff_a = -1.0;
-        let mut eff_a = -1.0;
-        let mut lists = std::collections::HashMap::new();
+    pub fn cut_v(g: &G) -> (Vec<V>, HashSet<V>, f64) {
+        // let mut vertices_with_denom_1 = Vec::new();
+        let mut vertices_with_denom_1 = HashMap::new();
+        // let mut vs = Vec::new();
+        // let mut min_eff_a = -1.0;
+        // let mut eff_a = -1.0;
+        // let mut lists = std::collections::HashMap::new();
 
         for v in g.vertices() {
             // println!("{:?}", g.phase(v));
@@ -448,120 +456,137 @@ impl<G: GraphLike> Decomposer<G> {
                                 > 1
                         })
                         .cloned()
-                        .collect::<Vec<_>>();
-                    vertices_with_denom_1.push((v, filtered_neighbours));
+                        .collect::<HashSet<_>>();
+                    vertices_with_denom_1.insert(v, filtered_neighbours);
 
                 }
             }
-            if *g.phase(v).denom() == 4 {
-                let neighbours = g.neighbor_vec(v);
-                let filtered_neighbours = neighbours
-                    .iter()
-                    .filter(|&w| *g.phase(*w).denom() == 1)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if !filtered_neighbours.is_empty() {
-                    lists.insert(v, filtered_neighbours);
-                }
-
-            }
         }
-
-        let mut similarity_map = std::collections::HashMap::new();
-        let inputs = iproduct!(lists.values(), lists.values());
-
-        for (x, y) in inputs {
-            let similarity = Decomposer::<G>::jaccard_similarity(x, y);
-            similarity_map.insert((x.clone(), y.clone()), similarity);
-        }
-
         
+        // Step 2: Initialize each set as its own group
+        let mut groups: Vec<HashSet<usize>> = vertices_with_denom_1.iter().map(|(i, _)| {
+            let mut set = HashSet::new();
+            set.insert(*i);
+            set
+        }).collect();
 
-        
-
-        // println!("Jaccard\n {:?}", result);
-
-
-        let mut counter = std::collections::HashMap::new();
-        for (_v, neighbours) in vertices_with_denom_1.clone() {
-            for neighbour in neighbours {
-                *counter.entry(neighbour).or_insert(0) += 1;
+        // Initialize a hashmap to track uncommon elements between groups
+        let mut group_uncommon: HashMap<Vec<V>, HashSet<V>> = HashMap::new();
+        for (i, iv) in vertices_with_denom_1.clone() {
+            for (j, jv) in vertices_with_denom_1.clone() {
+                if i >= j {
+                    continue;
+                }
+                group_uncommon.insert(vec![i, j], Self::uncommon_elements(&iv, &jv));
             }
         }
-        // println!("{:?}", counter);
-        let most_common_vertex = counter
-            .clone()
-            .into_iter()
-            .filter(|(_, count)| *count > 1)
-            .max_by_key(|(_, count)| *count)
-            .map(|(vertex, _)| vertex);
+        // println!("denom 1 {:?}", vertices_with_denom_1);
+        if !group_uncommon.is_empty() {
 
-        if let Some(most_common_vertex) = most_common_vertex {
-            let max_count = counter.get(&most_common_vertex).unwrap();
-            vs = counter
-                .iter()
-                .filter(|(_, count)| *count == max_count)
-                .map(|(vertex, _)| *vertex)
-                .collect();
-
-            let mut max_n = 0;
-            let mut min_n = usize::MAX;
-            let mut neighbour_vecs = Vec::new();
-
-            for (_v, neighbours) in vertices_with_denom_1.clone() {
-                if neighbours.contains(&most_common_vertex) {
-                    max_n = max_n.max(neighbours.clone().len());
-                    min_n = min_n.min(neighbours.clone().len());
-                    neighbour_vecs.push(neighbours);
-                }
-            }
-
-            let intersection = neighbour_vecs
-                .iter()
-                .fold(neighbour_vecs[0].clone(), |acc, vec| {
-                    acc.into_iter().filter(|&v| vec.contains(&v)).collect()
-                });
-
-            let union = neighbour_vecs.iter().fold(Vec::new(), |acc, vec| {
-                acc.into_iter().chain(vec.iter().cloned()).collect()
-            });
-
-            let frac = intersection.len() as f64 / union.len() as f64;
-
+        // println!("group uncommon {:?}", group_uncommon);
+        }
+        
+        // Step 3: Iteratively merge groups
+        while groups.len() > 1 {
+            let mut min_uncommon = usize::MAX;
+            let mut merge_candidates = None;
             
-            let inputs = iproduct!(neighbour_vecs.clone(), neighbour_vecs.clone());   
-                 
-            let result: Vec<f64> = inputs
-            .map(|(x, y)| Decomposer::<G>::jaccard_similarity(&x, &y))
-            .collect();
-    
-            // println!("Jaccard\n {:?}", result);
-
-            let average_result: f64 = result.iter().sum::<f64>() / result.len() as f64;
-            // println!("Average Result: {:?}", average_result);
-
-            if average_result > 0.8 {
-
-                // eff_a = union.len() as f64 / (neighbour_vecs.len() as f64 + union.len() as f64);
-                eff_a = max_n as f64 / (neighbour_vecs.len() as f64 + max_n as f64);
-                // eff_a = union.len() as f64 / (neighbour_vecs.len() as f64 + intersection.len() as f64);
-                min_eff_a = min_n as f64 / (neighbour_vecs.len() as f64 + min_n as f64);
-                // min_eff_a = eff_a * frac;
-                vs = intersection.clone();
-                // eff_a = min_eff_a;
-                // println!("eff a {:?}", eff_a);
-                // println!("min eff a {:?}", min_eff_a);
-                // println!("intersection {:?} {:?}", intersection, intersection.len());
-                // println!("num of 0 spiders{:?}", neighbour_vecs.len());
-                // println!("max/min neighs{:?}, {:?}", max_n, min_n);
-                // println!("frac of{:?}", frac);
+            // Find the pair of groups with the minimum number of uncommon elements
+            for i in 0..groups.len() {
+                for j in (i + 1)..groups.len() {
+                    let mut uncommon: HashSet<V> = HashSet::new();
+                    
+                    for &x in &groups[i] {
+                        for &y in &groups[j] {
+                            if let Some(value) = group_uncommon.get(&vec![x.min(y), x.max(y)]) {
+                                uncommon.extend(value.iter().cloned());
+                            }
+                        }
+                    }
+                    
+                    
+                    
+                    let frac = uncommon.len() as f64 / groups[i].union(&groups[j]).cloned().count() as f64;
+                    
+                    if !uncommon.is_empty() && uncommon.len() < min_uncommon && frac < 0.67 {
+                        min_uncommon = uncommon.len();
+                        merge_candidates = Some((i, j));
+                    }
+                }
             }
+            
+            let (i, j) = match merge_candidates {
+                Some(pair) => pair,
+                None => break,
+            };
+            
+            // Merge groups[i] and groups[j]
+            let merged_group = groups[i].union(&groups[j]).cloned().collect();
+            groups[i] = merged_group;
+            
+            // Update the group_uncommon hashmap
+            for k in 0..groups.len() {
+                if k == i || k == j {
+                    continue;
+                }
+                
+                let new_group = &groups[i];
+                let existing_group = &groups[k];
 
-
-
-
+                let mut new_uncommon = HashSet::new();
+                for &x in new_group {
+                    for &y in existing_group {
+                        let setx = vertices_with_denom_1.get(&x).unwrap().clone();
+                        let sety = vertices_with_denom_1.get(&y).unwrap().clone();
+                        new_uncommon.extend(Self::uncommon_elements(&setx, &sety));
+                    }
+                }
+                let mut u_group : Vec<usize> = new_group.union(existing_group).cloned().collect();
+                u_group.sort();
+                group_uncommon.insert(u_group, new_uncommon);
+            }
+            
+            groups.remove(j);
+            
+            // for group in &groups {
+            //     println!("{:?}", group);
+            // }
+            // println!("");
+            
         }
-        (vs, eff_a, min_eff_a)
+        
+        // Construct the final grouped sets
+        // let final_groups: Vec<HashSet<i32>> = groups.into_iter().map(|group| {
+        //     group.into_iter().flat_map(|idx| sets[idx].clone()).collect()
+        // }).collect();
+        
+        // Return the final groups and the group_uncommon hashmap
+        // (groups, group_uncommon)
+
+        // println!("{:?}", group_uncommon);
+        
+        let sorted_group_uncommon: Vec<(Vec<V>, HashSet<V>)> = group_uncommon
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+
+        let mut sorted_group_uncommon = sorted_group_uncommon
+            .into_iter()
+            .map(|(key, value)| {
+                let frac = value.len() as f64 / (key.len() as f64 + value.len() as f64);
+                (key, value, frac)
+            })
+            .collect::<Vec<_>>();
+
+        sorted_group_uncommon.sort_by(|(_, _, frac1), (_, _, frac2)| frac1.partial_cmp(frac2).unwrap());
+        
+        if sorted_group_uncommon.is_empty() {
+            return (vec![], HashSet::new(), -1.0);
+        }
+        if sorted_group_uncommon[0].clone().1.is_empty() {
+            return (vec![], HashSet::new(), -1.0);
+        }
+        sorted_group_uncommon[0].clone()
     }
 
     /// Split the graph into connected components
