@@ -20,10 +20,7 @@ use hashbrown::HashMap;
 use num::Rational64;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
-use rustworkx_core::connectivity::articulation_points;
-use rustworkx_core::petgraph;
 use std::collections::VecDeque;
-use itertools::iproduct;
 use std::collections::HashSet;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -205,13 +202,13 @@ impl<G: GraphLike> Decomposer<G> {
                 return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
             }
 
-            let (vs, _, eff_a) = Decomposer::cut_v(&g);
+            let (_, vs, eff_a) = Decomposer::cut_v(&g);
 
             if eff_a >= 0.0
                 && ((nts == 6 && eff_a < 0.263) || (nts == 5 && eff_a < 0.316) || eff_a < 0.4)
             {
                 // println!("using cut!");
-                println!("eff_a {:?}", eff_a);
+                println!("eff_a {:?}, len vs {:?}", eff_a, vs.len());
                 let mut i = 1;
                 for v in vs {
                     let mut nv = vec![v];
@@ -286,7 +283,7 @@ impl<G: GraphLike> Decomposer<G> {
                         return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
                     }
 
-                    let (vs, _, eff_a) = Decomposer::cut_v(&g);
+                    let (_, vs, eff_a) = Decomposer::cut_v(&g);
 
                     if eff_a >= 0.0
                         && ((nts == 6 && eff_a < 0.263)
@@ -294,7 +291,7 @@ impl<G: GraphLike> Decomposer<G> {
                             || eff_a < 0.4)
                     {
                         // println!("using cut!");
-                        println!("eff_a {:?}", eff_a);
+                        println!("eff_a {:?}, len vs {:?}", eff_a, vs.len());
                         let mut i = 1;
                         for v in vs {
                             let mut nv = vec![v];
@@ -434,15 +431,9 @@ impl<G: GraphLike> Decomposer<G> {
     
 
     pub fn cut_v(g: &G) -> (Vec<V>, HashSet<V>, f64) {
-        // let mut vertices_with_denom_1 = Vec::new();
         let mut vertices_with_denom_1 = HashMap::new();
-        // let mut vs = Vec::new();
-        // let mut min_eff_a = -1.0;
-        // let mut eff_a = -1.0;
-        // let mut lists = std::collections::HashMap::new();
 
         for v in g.vertices() {
-            // println!("{:?}", g.phase(v));
             if *g.phase(v).denom() == 1 {
                 let neighbours = g.neighbor_vec(v);
                 if neighbours.len() > 1 {
@@ -547,23 +538,8 @@ impl<G: GraphLike> Decomposer<G> {
             }
             
             groups.remove(j);
-            
-            // for group in &groups {
-            //     println!("{:?}", group);
-            // }
-            // println!("");
-            
         }
         
-        // Construct the final grouped sets
-        // let final_groups: Vec<HashSet<i32>> = groups.into_iter().map(|group| {
-        //     group.into_iter().flat_map(|idx| sets[idx].clone()).collect()
-        // }).collect();
-        
-        // Return the final groups and the group_uncommon hashmap
-        // (groups, group_uncommon)
-
-        // println!("{:?}", group_uncommon);
         
         let sorted_group_uncommon: Vec<(Vec<V>, HashSet<V>)> = group_uncommon
             .iter()
@@ -861,7 +837,7 @@ impl<G: GraphLike> Decomposer<G> {
     fn cut_pair0(g: &G, verts: &[V]) -> G {
         let mut g = g.clone();
         let n = verts.len() - 1;
-        *g.scalar_mut() *= ScalarN::Exact(-(n as i32) + 2, vec![1, 0, 0, 0]);
+        *g.scalar_mut() *= ScalarN::Exact(-(n as i32), vec![1, 0, 0, 0]);
 
         for &v in &verts[1..] {
             g.remove_edge(verts[0], v);
@@ -876,8 +852,18 @@ impl<G: GraphLike> Decomposer<G> {
 
     fn cut_pair1(g: &G, verts: &[V]) -> G {
         let mut g = g.clone();
+        let p = g.phase(verts[0]);
         let n = verts.len() - 1;
-        *g.scalar_mut() *= ScalarN::Exact(-(n as i32) + 2, vec![1, 0, 0, 0]);
+        *g.scalar_mut() *= ScalarN::Exact(-(n as i32), vec![1, 0, 0, 0]);
+        if p.denom() == &4 {
+            match p.numer() {
+                &1 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, 1, 0, 0]),
+                &3 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, 0, 0, -1]),
+                &5 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, -1, 0, 0]),
+                &7 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, 0, 0, 1]),
+                _ => (),
+            }
+        }
 
         for &v in &verts[1..] {
             g.remove_edge(verts[0], v);
