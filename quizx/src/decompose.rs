@@ -16,10 +16,15 @@
 
 use crate::graph::*;
 use crate::scalar::*;
+use hashbrown::HashMap;
 use num::Rational64;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
+use rustworkx_core::connectivity::articulation_points;
+use rustworkx_core::petgraph;
 use std::collections::VecDeque;
+use itertools::iproduct;
+use std::collections::HashSet;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum SimpFunc {
@@ -39,6 +44,7 @@ pub struct Decomposer<G: GraphLike> {
     simp_func: SimpFunc,
     random_t: bool,
     use_cats: bool,
+    split_comps: bool,
     save: bool, // save graphs on 'done' stack
 }
 
@@ -68,6 +74,7 @@ impl<G: GraphLike> Decomposer<G> {
             simp_func: NoSimp,
             random_t: false,
             use_cats: false,
+            split_comps: false,
             save: false,
         }
     }
@@ -136,6 +143,11 @@ impl<G: GraphLike> Decomposer<G> {
         self
     }
 
+    pub fn split_comps(&mut self, b: bool) -> &mut Self {
+        self.split_comps = b;
+        self
+    }
+
     pub fn save(&mut self, b: bool) -> &mut Self {
         self.save = b;
         self
@@ -160,14 +172,66 @@ impl<G: GraphLike> Decomposer<G> {
     /// stack.
     pub fn decomp_top(&mut self) -> &mut Self {
         let (depth, g) = self.stack.pop_back().unwrap();
+        if self.split_comps {
+            let g_comps = Decomposer::split_components(&g);
+            if g_comps.len() > 1 {
+                return self.decomp_split_comps(&g, &g_comps);
+            }
+        }
+
+        // for e in g.edges() {
+        //     println!("{:?}", e.2);
+        // }
+
         if self.use_cats {
             let cat_nodes = Decomposer::cat_ts(&g); //gadget_ts(&g);
                                                     //println!("{:?}", gadget_nodes);
                                                     //let nts = cat_nodes.iter().fold(0, |acc, &x| if g.phase(x).denom() == &4 { acc + 1 } else { acc });
+                                                    // if !cat_nodes.is_empty() {
+                                                    //     // println!("using cat!");
+                                                    //     return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
+                                                    // }
+            let nts = cat_nodes.iter().fold(0, |acc, &x| {
+                if g.phase(x).denom() == &4 {
+                    acc + 1
+                } else {
+                    acc
+                }
+            });
+
+
+            if nts == 4 {
+                // println!("using cat!");
+                return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
+            }
+
+            // let (vs, eff_a, min_eff_a) = Decomposer::cut_v(&g);
+
+            // if eff_a >= 0.0
+            //     && ((nts == 6 && eff_a < 0.263) || (nts == 5 && eff_a < 0.316) || eff_a < 0.4)
+            // {
+            //     // println!("using cut!");
+            //     println!("eff_a {:?}", eff_a);
+            //     let mut i = 1;
+            //     for v in vs {
+            //         let mut nv = vec![v];
+            //         nv.extend(g.neighbor_vec(v));
+            //         self.push_decomp(
+            //             &[Decomposer::cut_pair0, Decomposer::cut_pair1],
+            //             depth + i,
+            //             &g,
+            //             &nv,
+            //         );
+            //         i += 1;
+            //     }
+            //     return self;
+            // }
+
             if !cat_nodes.is_empty() {
                 // println!("using cat!");
                 return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
             }
+
             let ts = Decomposer::first_ts(&g);
             if ts.len() >= 5 {
                 return self.push_magic5_from_cat_decomp(depth + 1, &g, &ts[..5]);
@@ -199,6 +263,12 @@ impl<G: GraphLike> Decomposer<G> {
                 self.stack.push_front((d, g));
                 break;
             } else {
+                if self.split_comps {
+                    let g_comps = Decomposer::split_components(&g);
+                    if g_comps.len() > 1 {
+                        return self.decomp_split_comps(&g, &g_comps);
+                    }
+                }
                 if self.use_cats {
                     let cat_nodes = Decomposer::cat_ts(&g); //gadget_ts(&g);
                                                             //println!("{:?}", gadget_nodes);
@@ -209,9 +279,45 @@ impl<G: GraphLike> Decomposer<G> {
                             acc
                         }
                     });
-                    if nts > 2 {
+
+
+                    if nts == 4 {
                         // println!("using cat!");
                         return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
+                    }
+
+                    // let (vs, eff_a, min_eff_a) = Decomposer::cut_v(&g);
+
+                    // if eff_a >= 0.0
+                    //     && ((nts == 6 && eff_a < 0.263)
+                    //         || (nts == 5 && eff_a < 0.316)
+                    //         || eff_a < 0.4)
+                    // {
+                    //     // println!("using cut!");
+                    //     println!("eff_a {:?}", eff_a);
+                    //     let mut i = 1;
+                    //     for v in vs {
+                    //         let mut nv = vec![v];
+                    //         nv.extend(g.neighbor_vec(v));
+                    //         self.push_decomp(
+                    //             &[Decomposer::cut_pair0, Decomposer::cut_pair1],
+                    //             depth + i,
+                    //             &g,
+                    //             &nv,
+                    //         );
+                    //         i += 1;
+                    //     }
+                    //     return self;
+                    // }
+
+                    if !cat_nodes.is_empty() {
+                        // println!("using cat!");
+                        return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
+                    }
+
+                    let ts = Decomposer::first_ts(&g);
+                    if ts.len() >= 5 {
+                        return self.push_magic5_from_cat_decomp(depth + 1, &g, &ts[..5]);
                     }
                 }
                 let ts = if self.random_t {
@@ -261,6 +367,25 @@ impl<G: GraphLike> Decomposer<G> {
         }
     }
 
+    pub fn decomp_split_comps(&mut self, g: &G, g_comps: &Vec<G>) -> &mut Self {
+        let mut nterms_comps = 0;
+        let mut scalar_comps = g.scalar().clone();
+        for h in g_comps {
+            let mut d = Decomposer::new(h);
+            d.use_cats(true);
+            d.split_comps(true);
+            d.with_full_simp();
+
+            let d = d.decomp_parallel(3);
+            nterms_comps += d.nterms;
+            scalar_comps *= d.scalar;
+        }
+        self.nterms += nterms_comps;
+        self.scalar = &self.scalar + scalar_comps;
+
+        self
+    }
+
     /// Pick the first <= 6 T gates from the given graph
     pub fn first_ts(g: &G) -> Vec<V> {
         let mut t = vec![];
@@ -290,100 +415,160 @@ impl<G: GraphLike> Decomposer<G> {
         t
     }
 
-    // Adapated from https://docs.rs/graphalgs/latest/src/graphalgs/connect/articulation_points.rs.html
-    fn dfs_helper(
-        graph: &G,
-        v: V,
-        p: V,
-        is_cut_point: &mut Vec<bool>,
-        cut_points: &mut Vec<V>,
-        num_children: &mut Vec<usize>,
-        visited: &mut Vec<bool>,
-        timer: &mut usize,
-        tin: &mut Vec<usize>,
-        fup: &mut Vec<usize>,
-    ) {
-        visited[v] = true;
-        *timer += 1;
-        tin[v] = *timer;
-        fup[v] = *timer;
-        let mut children = 0usize;
+    fn jaccard_similarity(set1: &[V], set2: &[V]) -> f64 {
+        let set1: HashSet<_> = set1.iter().cloned().collect();
+        let set2: HashSet<_> = set2.iter().cloned().collect();
+    
+        let intersection: HashSet<_> = set1.intersection(&set2).collect();
+        let union: HashSet<_> = set1.union(&set2).collect();
+    
+        intersection.len() as f64 / union.len() as f64
+    }
+    
 
-        for n in graph.neighbors(v) {
-            if n == p {
-                continue;
-            }
-            if visited[n] {
-                fup[v] = fup[v].min(tin[n]);
-            } else {
-                Decomposer::dfs_helper(
-                    graph,
-                    n,
-                    v,
-                    is_cut_point,
-                    cut_points,
-                    num_children,
-                    visited,
-                    timer,
-                    tin,
-                    fup,
-                );
-                fup[v] = fup[v].min(fup[n]);
-                // if fup[v] != 0 {
-                //     println!("fup[{}]: {}", v, fup[v]);
-                // }
-                if fup[n] >= tin[v] && p < graph.vindex() && !is_cut_point[v] {
-                    is_cut_point[v] = true;
-                    cut_points.push(v);
+    pub fn cut_v(g: &G) -> (Vec<V>, f64, f64) {
+        let mut vertices_with_denom_1 = Vec::new();
+        let mut vs = Vec::new();
+        let mut min_eff_a = -1.0;
+        let mut eff_a = -1.0;
+        let mut lists = std::collections::HashMap::new();
+
+        for v in g.vertices() {
+            // println!("{:?}", g.phase(v));
+            if *g.phase(v).denom() == 1 {
+                let neighbours = g.neighbor_vec(v);
+                if neighbours.len() > 1 {
+                    let filtered_neighbours = neighbours
+                        .iter()
+                        .filter(|&w| {
+                            g.neighbor_vec(*w)
+                                .into_iter()
+                                .filter(|&x| *g.phase(x).denom() == 1)
+                                .count()
+                                > 1
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    vertices_with_denom_1.push((v, filtered_neighbours));
+
                 }
-                children += 1;
+            }
+            if *g.phase(v).denom() == 4 {
+                let neighbours = g.neighbor_vec(v);
+                let filtered_neighbours = neighbours
+                    .iter()
+                    .filter(|&w| *g.phase(*w).denom() == 1)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !filtered_neighbours.is_empty() {
+                    lists.insert(v, filtered_neighbours);
+                }
+
             }
         }
 
-        if p > graph.vindex() && children > 1 && !is_cut_point[v] {
-            is_cut_point[v] = true;
-            cut_points.push(v);
-            num_children.push(children);
+        let mut similarity_map = std::collections::HashMap::new();
+        let inputs = iproduct!(lists.values(), lists.values());
+
+        for (x, y) in inputs {
+            let similarity = Decomposer::<G>::jaccard_similarity(x, y);
+            similarity_map.insert((x.clone(), y.clone()), similarity);
         }
+
+        
+
+        
+
+        // println!("Jaccard\n {:?}", result);
+
+
+        let mut counter = std::collections::HashMap::new();
+        for (_v, neighbours) in vertices_with_denom_1.clone() {
+            for neighbour in neighbours {
+                *counter.entry(neighbour).or_insert(0) += 1;
+            }
+        }
+        // println!("{:?}", counter);
+        let most_common_vertex = counter
+            .clone()
+            .into_iter()
+            .filter(|(_, count)| *count > 1)
+            .max_by_key(|(_, count)| *count)
+            .map(|(vertex, _)| vertex);
+
+        if let Some(most_common_vertex) = most_common_vertex {
+            let max_count = counter.get(&most_common_vertex).unwrap();
+            vs = counter
+                .iter()
+                .filter(|(_, count)| *count == max_count)
+                .map(|(vertex, _)| *vertex)
+                .collect();
+
+            let mut max_n = 0;
+            let mut min_n = usize::MAX;
+            let mut neighbour_vecs = Vec::new();
+
+            for (_v, neighbours) in vertices_with_denom_1.clone() {
+                if neighbours.contains(&most_common_vertex) {
+                    max_n = max_n.max(neighbours.clone().len());
+                    min_n = min_n.min(neighbours.clone().len());
+                    neighbour_vecs.push(neighbours);
+                }
+            }
+
+            let intersection = neighbour_vecs
+                .iter()
+                .fold(neighbour_vecs[0].clone(), |acc, vec| {
+                    acc.into_iter().filter(|&v| vec.contains(&v)).collect()
+                });
+
+            let union = neighbour_vecs.iter().fold(Vec::new(), |acc, vec| {
+                acc.into_iter().chain(vec.iter().cloned()).collect()
+            });
+
+            let frac = intersection.len() as f64 / union.len() as f64;
+
+            
+            let inputs = iproduct!(neighbour_vecs.clone(), neighbour_vecs.clone());   
+                 
+            let result: Vec<f64> = inputs
+            .map(|(x, y)| Decomposer::<G>::jaccard_similarity(&x, &y))
+            .collect();
+    
+            // println!("Jaccard\n {:?}", result);
+
+            let average_result: f64 = result.iter().sum::<f64>() / result.len() as f64;
+            // println!("Average Result: {:?}", average_result);
+
+            if average_result > 0.8 {
+
+                // eff_a = union.len() as f64 / (neighbour_vecs.len() as f64 + union.len() as f64);
+                eff_a = max_n as f64 / (neighbour_vecs.len() as f64 + max_n as f64);
+                // eff_a = union.len() as f64 / (neighbour_vecs.len() as f64 + intersection.len() as f64);
+                min_eff_a = min_n as f64 / (neighbour_vecs.len() as f64 + min_n as f64);
+                // min_eff_a = eff_a * frac;
+                vs = intersection.clone();
+                // eff_a = min_eff_a;
+                // println!("eff a {:?}", eff_a);
+                // println!("min eff a {:?}", min_eff_a);
+                // println!("intersection {:?} {:?}", intersection, intersection.len());
+                // println!("num of 0 spiders{:?}", neighbour_vecs.len());
+                // println!("max/min neighs{:?}, {:?}", max_n, min_n);
+                // println!("frac of{:?}", frac);
+            }
+
+
+
+
+        }
+        (vs, eff_a, min_eff_a)
     }
 
-    // Gets the Clifford spiders that are articulation points, and are part of cat3 or cat5 states
-    pub fn ap(g: &G) -> Vec<V> {
-        let mut cut_points = Vec::new();
-        let mut num_children = Vec::new();
-        let mut visited = vec![false; g.vindex()];
-        let mut is_cut_point = vec![false; g.vindex()];
-        let mut tin = vec![0usize; g.vindex()];
-        let mut fup = vec![0usize; g.vindex()];
-        let mut timer = 0usize;
-        for v in g.vertices() {
-            if g.phase(v).denom() == &1 && !visited[v] {
-                let neigh = g.neighbor_vec(v);
-                if [3, 5].contains(&neigh.len()) {
-                    // println!("neigh_len: {}", &neigh.len());
-                    // println!("v: {}", v);
-                    Decomposer::dfs_helper(
-                        g,
-                        v,
-                        g.vindex() + 1,
-                        &mut is_cut_point,
-                        &mut cut_points,
-                        &mut num_children,
-                        &mut visited,
-                        &mut timer,
-                        &mut tin,
-                        &mut fup,
-                    );
-                }
-            }
-        }
-        // println!("visited: {:?}", visited);
-        // println!("is_cut_point: {:?}", is_cut_point);
-        // println!("tin: {:?}", tin);
-        // println!("fup: {:?}", fup);
-        // cut_points.sort_by_key(|&v| num_children[v]);
-        // cut_points.reverse();
-        cut_points
+    /// Split the graph into connected components
+    /// Returns a vector of graphs
+    pub fn split_components(g: &G) -> Vec<G> {
+        let comps = g.component_vertices();
+        comps.into_iter().map(|c| g.induced_subgraph(&c)).collect()
     }
 
     /// Returns a best occurrence of a cat state
@@ -394,14 +579,85 @@ impl<G: GraphLike> Decomposer<G> {
         let mut res = vec![];
         let mut index = None;
 
-        // let aps = Decomposer::ap(g);
-        // // println!("APs: {:?}", aps);
-        // if !aps.is_empty() {
-        //     println!("APs: {:?}", aps);
-        //     res = vec![aps[0]];
-        //     let mut neigh = g.neighbor_vec(aps[0]);
-        //     res.append(&mut neigh);
-        //     return res;
+        // let gr = petgraph::graph::UnGraph::<(), ()>::from_edges(g.edges().map(|(a, b, _)| {
+        //     (
+        //         num::ToPrimitive::to_u32(&a).unwrap(),
+        //         num::ToPrimitive::to_u32(&b).unwrap(),
+        //     )
+        // }));
+        // let mut bicomp = HashMap::new();
+
+        // // articulation points a.k.a. cut points
+        // let _aps = articulation_points(&gr, Some(&mut bicomp));
+
+        // // Find the maximum biconnected component value
+        // let max_bicomp = bicomp.values().max().cloned().unwrap_or(0);
+
+        // // Create a boolean matrix to store the cut point components for each vertex
+        // let mut cut_comps = vec![vec![false; max_bicomp + 1]; g.vindex()];
+
+        // // Set each edge's vertex pair's cut point component
+        // for ((u, v), c) in bicomp.iter() {
+        //     cut_comps[u.index()][*c] = true;
+        //     cut_comps[v.index()][*c] = true;
+        // }
+
+        // // Create a vector to store candidate articulation points
+        // let mut cand_aps = vec![];
+        // for v in g.vertices() {
+        //     // Get the number of neighbors for the current vertex
+        //     let catn = g.neighbor_vec(v).len();
+
+        //     // Skip if the vertex does not belong to a cat state
+        //     if g.phase(v).denom() > &1 || catn > 6 {
+        //         continue;
+        //     }
+
+        //     let count = cut_comps[v].iter().filter(|&&b| b).count();
+        //     cand_aps.push((v, count, catn));
+        // }
+
+        // // Sort the candidate articulation points based on the preferred order
+        // cand_aps.sort_by(|a, b| {
+        //     let a_catn = a.2;
+        //     let b_catn = b.2;
+        //     let a_index = prefered_order.iter().position(|&r| r == a_catn).unwrap_or(usize::MAX);
+        //     let b_index = prefered_order.iter().position(|&r| r == b_catn).unwrap_or(usize::MAX);
+        //     let a_diff = a_catn.abs_diff(a.1);
+        //     let b_diff = b_catn.abs_diff(b.1);
+        //     if a_catn == 3 && a_diff == 0 {
+        //         std::cmp::Ordering::Less
+        //     } else if b_catn == 3 && b_diff == 0 {
+        //         std::cmp::Ordering::Greater
+        //     } else {
+        //         a_index.cmp(&b_index)
+        //     }
+        //     // b.1.cmp(&a.1).then(a_index.cmp(&b_index))
+        //     // a_index.cmp(&b_index).then(
+        //     //     if a_catn == 3 && (a_diff == 0 || b_diff == 0) {
+        //     //         a_diff.cmp(&b_diff)
+        //     //     } else {
+        //     //         std::cmp::Ordering::Equal
+        //     //     }
+        //         // a.1.cmp(&b.1)
+        //         // if [3].contains(&a_catn) {
+        //         //     // Prefer cuts that match the number of neighbors for cat3/5 states
+        //         //     let a_diff = a_catn.abs_diff(a.1);
+        //         //     let b_diff = b_catn.abs_diff(b.1);
+        //         //     a_diff.cmp(&b_diff)
+        //         // } else {
+        //         //     // Prefer more connected components for cat4/6 states
+        //         //     // a.1.cmp(&b.1)
+        //         //     std::cmp::Ordering::Equal
+        //         // }
+        //         // std::cmp::Ordering::Equal
+        //     // )
+        // });
+
+        // // Select the most preferred cat state as the result
+        // if !cand_aps.is_empty() {
+        //     res = vec![cand_aps[0].0];
+        //     res.append(g.neighbor_vec(res[0]).as_mut());
         // }
 
         for v in g.vertices() {
@@ -510,7 +766,7 @@ impl<G: GraphLike> Decomposer<G> {
 
     /// Perform a decomposition of 5 T-spiders, with one remaining
     fn push_magic5_from_cat_decomp(&mut self, depth: usize, g: &G, verts: &[V]) -> &mut Self {
-        //println!("magic5");
+        // println!("magic5");
         self.push_decomp(
             &[
                 Decomposer::replace_magic5_0,
@@ -545,8 +801,14 @@ impl<G: GraphLike> Decomposer<G> {
             g.add_edge_with_type(v, w, EType::H);
             g.add_edge_with_type(v, verts[0], EType::H);
             verts.push(v);
+            // if verts[1..].len() == 3 {
+            //     println!("cat3");
+            // } else {
+            //     println!("cat5");
+            // }
         }
         if verts[1..].len() == 6 {
+            // println!("cat6");
             self.push_decomp(
                 &[
                     Decomposer::replace_cat6_0,
@@ -558,6 +820,7 @@ impl<G: GraphLike> Decomposer<G> {
                 &verts,
             )
         } else if verts[1..].len() == 4 {
+            // println!("cat4");
             self.push_decomp(
                 &[Decomposer::replace_cat4_0, Decomposer::replace_cat4_1],
                 depth,
@@ -568,6 +831,38 @@ impl<G: GraphLike> Decomposer<G> {
             println!("this shouldn't be printed");
             self
         }
+    }
+
+    fn cut_pair0(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+        let n = verts.len() - 1;
+        *g.scalar_mut() *= ScalarN::Exact(-(n as i32) + 2, vec![1, 0, 0, 0]);
+
+        for &v in &verts[1..] {
+            g.remove_edge(verts[0], v);
+            let x = g.add_vertex(VType::Z);
+            g.add_edge_with_type(v, x, EType::H);
+        }
+
+        g.remove_vertex(verts[0]);
+
+        g
+    }
+
+    fn cut_pair1(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+        let n = verts.len() - 1;
+        *g.scalar_mut() *= ScalarN::Exact(-(n as i32) + 2, vec![1, 0, 0, 0]);
+
+        for &v in &verts[1..] {
+            g.remove_edge(verts[0], v);
+            let x = g.add_vertex_with_phase(VType::Z, Rational64::new(1, 1));
+            g.add_edge_with_type(v, x, EType::H);
+        }
+
+        g.remove_vertex(verts[0]);
+
+        g
     }
 
     fn replace_cat6_0(g: &G, verts: &[V]) -> G {
@@ -1006,4 +1301,124 @@ mod tests {
         d.with_full_simp().save(true).decomp_all();
         assert_eq!(d.done.len(), 7 * 2 * 2);
     }
+
+    #[test]
+    fn test_disconnected_vertices() {
+        let mut g = Graph::new();
+
+        // 6 disconnected vertices
+        for _ in 0..6 {
+            g.add_vertex_with_phase(VType::Z, Rational64::new(1, 4));
+        }
+
+        let mut d = Decomposer::new(&g);
+        d.with_full_simp();
+        d.decomp_all();
+
+        // 7 terms from doing BSS
+        assert_eq!(d.nterms, 7);
+
+        let sc = g.to_tensor4()[[]];
+        assert_eq!(Scalar::from_scalar(&sc), d.scalar);
+    }
+
+    #[test]
+    fn test_disconnected_cats() {
+        let mut g = Graph::new();
+
+        let ns = [4, 6, 5, 3];
+        // let mut all_bs: Vec<V> = Vec::new();
+
+        for n in ns {
+            let catn = g.add_cat(n);
+        }
+
+        let mut d = Decomposer::new(&g);
+        d.use_cats(true);
+        d.with_full_simp();
+        d.decomp_all();
+
+        // terms from doing cat decomp
+        assert_eq!(d.nterms, 2 * 3 * 3 * 2);
+
+        let sc = g.to_tensor4()[[]];
+        assert_eq!(Scalar::from_scalar(&sc), d.scalar);
+
+        let mut d2 = Decomposer::new(&g);
+        d2.use_cats(true);
+        d2.with_full_simp();
+        d2.split_comps(true);
+        d2.decomp_all();
+
+        // terms from doing cat decomp
+        assert_eq!(d2.nterms, 2 + 3 + 3 + 2);
+
+        let sc = g.to_tensor4()[[]];
+        assert_eq!(Scalar::from_scalar(&sc), d2.scalar);
+    }
+
+    // #[test]
+    // fn test_split_comp() {
+    //     use crate::circuit::Circuit;
+    //     let c = Circuit::random_pauli_gadget()
+    //         .qubits(10)
+    //         .depth(5)
+    //         .seed(1337)
+    //         .min_weight(2)
+    //         .max_weight(4)
+    //         .build();
+
+    //     // let mut rng = StdRng::seed_from_u64(1337 * 37);
+
+    //     let mut g: Graph = c.to_graph();
+    //     crate::simplify::full_simp(&mut g);
+    //     // let n = g.num_vertices();
+    //     let g2 = g.clone();
+    //     let g3 = g.clone();
+    //     g.append_graph(&g2);
+    //     g.append_graph(&g3);
+    //     let comps = g.component_vertices();
+    //     // let mut g = Graph::new();
+    //     assert_eq!(comps.len(), 3);
+
+    //     let cat3 = g.add_cat(3);
+    //     let mut i = 0;
+    //     for v in g.vertices().collect::<Vec<_>>() {
+    //         if comps[i].contains(&v) {
+    //             g.add_edge(cat3[i+1], v);
+    //             i += 1;
+    //         }
+    //         if i == 3 {
+    //             break;
+    //         }
+    //     }
+
+    //     let mut d = Decomposer::new(&g);
+    //     d.use_cats(true);
+    //     d.with_full_simp();
+    //     let d = d.decomp_parallel(3);
+
+    //     // terms from doing cat decomp
+    //     println!("nterms = {}", d.nterms);
+    //     // assert_eq!(d.nterms, 12);
+
+    //     // let sc = g.to_tensor4()[[]];
+
+    //     // assert_eq!(Scalar::from_scalar(&sc), d.scalar);
+
+    //     let mut d2 = Decomposer::new(&g);
+    //     d2.use_cats(true);
+    //     d2.with_full_simp();
+    //     d2.split_comps(true);
+    //     d2.decomp_all();
+
+    //     // terms from doing cat decomp
+    //     // assert_eq!(d2.nterms, 10);
+
+    //     println!("nterms = {}", d2.nterms);
+
+    //     // let sc = g.to_tensor4()[[]];
+    //     // assert_eq!(Scalar::from_scalar(&sc), d2.scalar);
+
+    // }
 }

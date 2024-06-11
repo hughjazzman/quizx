@@ -788,6 +788,33 @@ pub trait GraphLike: Clone + Sized + Send + Sync + std::fmt::Debug {
 
         comps
     }
+
+    fn induced_subgraph(&self, vertices: &FxHashSet<V>) -> Self {
+        let mut g = self.clone();
+
+        // original scalar is not part of the subgraph
+        g.scalar_mut().set_one();
+
+        for v in self.vertices() {
+            if !vertices.contains(&v) {
+                g.remove_vertex(v);
+            }
+        }
+
+        g
+    }
+
+    // Adds a catn state
+    fn add_cat(&mut self, n: usize) -> Vec<V> {
+        let c = self.add_vertex(VType::Z);
+        let mut catn = vec![c];
+        for _ in 0..n {
+            let i = self.add_vertex_with_phase(VType::Z, Rational64::new(1, 4));
+            self.add_edge_with_type(c, i, EType::H);
+            catn.push(i);
+        }
+        catn
+    }
 }
 
 #[cfg(test)]

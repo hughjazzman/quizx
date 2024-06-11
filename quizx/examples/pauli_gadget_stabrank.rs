@@ -76,6 +76,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terms = 0;
     let mut success = true;
     let mut time = Duration::from_millis(0);
+    let mut max_alpha: f64 = -1.0;
+    let mut alphas = vec![];
 
     for s in 1..=nsamples {
         println!("Sample {} of {}", s, nsamples);
@@ -105,6 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let time_single = Instant::now();
             let mut d = Decomposer::new(&h);
             d.use_cats(true);
+            d.split_comps(true);
             d.with_full_simp();
 
             let d = d.decomp_parallel(3);
@@ -151,12 +154,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             meas.push(outcome);
 
+            let mut c_alpha = -1.0;
+            if h.tcount() > 0 {
+                c_alpha = (d.nterms as f64).log2() / (h.tcount() as f64);
+            }
+            max_alpha = max_alpha.max(c_alpha);
+            alphas.push(c_alpha);
+
             if debug {
                 println!(
-                    "{} (p: {}, terms: {}, time: {:.2?})",
+                    "{} (p: {:.5?}, terms: {}, alpha: {:.2?} time: {:.5?})",
                     outcome,
                     p,
                     d.nterms,
+                    c_alpha,
                     time_single.elapsed()
                 );
             }
@@ -208,12 +219,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let naive: f64 = (nsamples as f64) * (qs as f64) * terms_for_tcount(2 * tcount);
     let no_simp: f64 = tcounts.iter().map(|&t| terms_for_tcount(t)).sum();
     println!(
-        "Got {} terms across all samples ({:+e} naive)",
-        terms, naive
+        "Got {} terms across all samples ({:+e} naive), max effective alpha = {:.5?}",
+        terms, naive, max_alpha
     );
 
-    let data = format!("\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{:+e}\",\"{:+e}\"\n",
-                       qs, depth, tcount, min_weight, max_weight, nsamples, seed, terms, time.as_millis(), tcounts.iter().format(","), no_simp, naive);
+    let data = format!("\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{:+e}\",\"{:+e}\",\"{}\"\n",
+                       qs, depth, tcount, min_weight, max_weight, nsamples, seed, terms, time.as_millis(), format!("{:.6}", tcounts.iter().format(",")), no_simp, naive, alphas.iter().format(","));
     if success {
         print!("OK {}", data);
         fs::write(
