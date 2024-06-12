@@ -202,7 +202,7 @@ impl<G: GraphLike> Decomposer<G> {
                 return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
             }
 
-            let (_, vs, eff_a) = Decomposer::cut_v(&g);
+            let (vs, eff_a) = Decomposer::cut_v(&g);
 
             if eff_a >= 0.0
                 && ((nts == 6 && eff_a < 0.263) || (nts == 5 && eff_a < 0.316) || eff_a < 0.4)
@@ -283,7 +283,7 @@ impl<G: GraphLike> Decomposer<G> {
                         return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
                     }
 
-                    let (_, vs, eff_a) = Decomposer::cut_v(&g);
+                    let (vs, eff_a) = Decomposer::cut_v(&g);
 
                     if eff_a >= 0.0
                         && ((nts == 6 && eff_a < 0.263)
@@ -430,8 +430,10 @@ impl<G: GraphLike> Decomposer<G> {
     
     
 
-    pub fn cut_v(g: &G) -> (Vec<V>, HashSet<V>, f64) {
+    pub fn cut_v(g: &G) -> (Vec<V>, f64) {
         let mut vertices_with_denom_1 = HashMap::new();
+        let mut vertices_with_denom_4 = HashMap::new();
+        let mut weights = HashMap::new();
 
         for v in g.vertices() {
             if *g.phase(v).denom() == 1 {
@@ -451,118 +453,170 @@ impl<G: GraphLike> Decomposer<G> {
                     vertices_with_denom_1.insert(v, filtered_neighbours);
 
                 }
+            } else if *g.phase(v).denom() == 4 {
+                let filtered_neighbours = g.neighbor_vec(v)
+                    .into_iter()
+                    .filter(|&w| *g.phase(w).denom() == 1)
+                    .collect::<HashSet<_>>();
+                vertices_with_denom_4.insert(v, filtered_neighbours);
+                weights.insert(v, 0.0);
+            }
+        }
+
+        // Add weight for T-spiders in a pair
+        for (v, v_neigh) in vertices_with_denom_1.clone() {
+            if v_neigh.len() != 2 {
+                continue;
+            }
+            for w in v_neigh {
+                weights.entry(w).and_modify(|e| *e += 1.0);
+            }
+        }
+
+        // Initialize a hashmap to track uncommon elements between groups
+        let mut group_uncommon : HashMap<(V, V), HashSet<V>> = HashMap::new();
+        for (i, i_neigh) in vertices_with_denom_1.clone() {
+            for (j, j_neigh) in vertices_with_denom_1.clone() {
+                let pair = (i.min(j), i.max(j));
+                if group_uncommon.contains_key(&pair) {
+                    continue;
+                }
+                group_uncommon.insert((i, j), Self::uncommon_elements(&i_neigh, &j_neigh));
+            }
+        }
+
+        for (_, u) in group_uncommon {
+            for v in u.clone() {
+                weights.entry(v).and_modify(|e| *e += 2.0 / u.len() as f64);
             }
         }
         
         // Step 2: Initialize each set as its own group
-        let mut groups: Vec<HashSet<usize>> = vertices_with_denom_1.iter().map(|(i, _)| {
-            let mut set = HashSet::new();
-            set.insert(*i);
-            set
-        }).collect();
+        // let mut groups: Vec<HashSet<usize>> = vertices_with_denom_1.iter().map(|(i, _)| {
+        //     let mut set = HashSet::new();
+        //     set.insert(*i);
+        //     set
+        // }).collect();
 
         // Initialize a hashmap to track uncommon elements between groups
-        let mut group_uncommon: HashMap<Vec<V>, HashSet<V>> = HashMap::new();
-        for (i, iv) in vertices_with_denom_1.clone() {
-            for (j, jv) in vertices_with_denom_1.clone() {
-                if i >= j {
-                    continue;
-                }
-                group_uncommon.insert(vec![i, j], Self::uncommon_elements(&iv, &jv));
+        // let mut group_uncommon: HashMap<Vec<V>, HashSet<V>> = HashMap::new();
+        let max_weight = weights.iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap());
+        let mut nbs = Vec::new();
+        let mut frac = -1.0;
+        if let Some((max_key, max_val)) = max_weight {
+            nbs = vec![*max_key];
+            nbs.extend(g.neighbor_vec(*max_key));
+            if *max_val > 0.0 {
+                frac = 1.0 / max_val.clone() as f64;
             }
         }
-        // println!("denom 1 {:?}", vertices_with_denom_1);
-        if !group_uncommon.is_empty() {
 
-        // println!("group uncommon {:?}", group_uncommon);
-        }
+        (nbs, frac)
+
+
+        // let sorted_weights: Vec<(Vec<V>, HashSet<V>)> = weights
+        //     .iter()
+        //     .map(|(key, value)| (key.clone(), value.clone()))
+        //     .collect();
+
         
         // Step 3: Iteratively merge groups
-        while groups.len() > 1 {
-            let mut min_uncommon = usize::MAX;
-            let mut merge_candidates = None;
+        // while groups.len() > 1 {
+        //     let mut min_uncommon = usize::MAX;
+        //     let mut merge_candidates = None;
             
-            // Find the pair of groups with the minimum number of uncommon elements
-            for i in 0..groups.len() {
-                for j in (i + 1)..groups.len() {
-                    let mut uncommon: HashSet<V> = HashSet::new();
+        //     // Find the pair of groups with the minimum number of uncommon elements
+        //     for i in 0..groups.len() {
+        //         for j in (i + 1)..groups.len() {
+        //             let mut uncommon: HashSet<V> = HashSet::new();
                     
-                    for &x in &groups[i] {
-                        for &y in &groups[j] {
-                            if let Some(value) = group_uncommon.get(&vec![x.min(y), x.max(y)]) {
-                                uncommon.extend(value.iter().cloned());
-                            }
-                        }
-                    }
+        //             for &x in &groups[i] {
+        //                 for &y in &groups[j] {
+        //                     if let Some(value) = group_uncommon.get(&vec![x.min(y), x.max(y)]) {
+        //                         uncommon.extend(value.iter().cloned());
+        //                     }
+        //                 }
+        //             }
                     
                     
                     
-                    let frac = uncommon.len() as f64 / groups[i].union(&groups[j]).cloned().count() as f64;
+        //             let frac = uncommon.len() as f64 / groups[i].union(&groups[j]).cloned().count() as f64;
                     
-                    if !uncommon.is_empty() && uncommon.len() < min_uncommon && frac < 0.67 {
-                        min_uncommon = uncommon.len();
-                        merge_candidates = Some((i, j));
-                    }
-                }
-            }
+        //             if !uncommon.is_empty() && uncommon.len() < min_uncommon && frac < 0.67 {
+        //                 min_uncommon = uncommon.len();
+        //                 merge_candidates = Some((i, j));
+        //             }
+        //         }
+        //     }
             
-            let (i, j) = match merge_candidates {
-                Some(pair) => pair,
-                None => break,
-            };
+        //     let (i, j) = match merge_candidates {
+        //         Some(pair) => pair,
+        //         None => break,
+        //     };
             
-            // Merge groups[i] and groups[j]
-            let merged_group = groups[i].union(&groups[j]).cloned().collect();
-            groups[i] = merged_group;
+        //     // Merge groups[i] and groups[j]
+        //     let merged_group = groups[i].union(&groups[j]).cloned().collect();
+        //     groups[i] = merged_group;
             
-            // Update the group_uncommon hashmap
-            for k in 0..groups.len() {
-                if k == i || k == j {
-                    continue;
-                }
+        //     // Update the group_uncommon hashmap
+        //     for k in 0..groups.len() {
+        //         if k == i || k == j {
+        //             continue;
+        //         }
                 
-                let new_group = &groups[i];
-                let existing_group = &groups[k];
+        //         let new_group = &groups[i];
+        //         let existing_group = &groups[k];
 
-                let mut new_uncommon = HashSet::new();
-                for &x in new_group {
-                    for &y in existing_group {
-                        let setx = vertices_with_denom_1.get(&x).unwrap().clone();
-                        let sety = vertices_with_denom_1.get(&y).unwrap().clone();
-                        new_uncommon.extend(Self::uncommon_elements(&setx, &sety));
-                    }
-                }
-                let mut u_group : Vec<usize> = new_group.union(existing_group).cloned().collect();
-                u_group.sort();
-                group_uncommon.insert(u_group, new_uncommon);
-            }
+        //         let mut new_uncommon = HashSet::new();
+        //         for &x in new_group {
+        //             for &y in existing_group {
+        //                 let setx = vertices_with_denom_1.get(&x).unwrap().clone();
+        //                 let sety = vertices_with_denom_1.get(&y).unwrap().clone();
+        //                 new_uncommon.extend(Self::uncommon_elements(&setx, &sety));
+        //             }
+        //         }
+        //         let mut u_group : Vec<usize> = new_group.union(existing_group).cloned().collect();
+        //         u_group.sort();
+        //         group_uncommon.insert(u_group, new_uncommon);
+        //     }
             
-            groups.remove(j);
-        }
+        //     groups.remove(j);
+        // }
         
         
-        let sorted_group_uncommon: Vec<(Vec<V>, HashSet<V>)> = group_uncommon
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
+        // let sorted_group_uncommon: Vec<(Vec<V>, HashSet<V>)> = group_uncommon
+        //     .iter()
+        //     .map(|(key, value)| (key.clone(), value.clone()))
+        //     .collect();
 
-        let mut sorted_group_uncommon = sorted_group_uncommon
-            .into_iter()
-            .map(|(key, value)| {
-                let frac = value.len() as f64 / (key.len() as f64 + value.len() as f64);
-                (key, value, frac)
-            })
-            .collect::<Vec<_>>();
+        // let mut sorted_group_uncommon = sorted_group_uncommon
+        //     .into_iter()
+        //     .map(|(key, value)| {
+        //         let mut n = 0;
+        //         for v in value.clone() {
+        //             let v0_neigh = vertices_with_denom_4.get(&v).unwrap();
+        //             for v0 in v0_neigh {
+        //                 let is_pair = vertices_with_denom_1.get(v0).unwrap().len() == 2;
+        //                 if is_pair {
+        //                     n += 2;
+        //                 }
+        //             }
+        //         }
+        //         let n = n as f64;
+        //         let frac = value.len() as f64 / (key.len() as f64 + value.len() as f64 + n);
+        //         (key, value, frac)
+        //     })
+        //     .collect::<Vec<_>>();
 
-        sorted_group_uncommon.sort_by(|(_, _, frac1), (_, _, frac2)| frac1.partial_cmp(frac2).unwrap());
+        // sorted_group_uncommon.sort_by(|(_, _, frac1), (_, _, frac2)| frac1.partial_cmp(frac2).unwrap());
         
-        if sorted_group_uncommon.is_empty() {
-            return (vec![], HashSet::new(), -1.0);
-        }
-        if sorted_group_uncommon[0].clone().1.is_empty() {
-            return (vec![], HashSet::new(), -1.0);
-        }
-        sorted_group_uncommon[0].clone()
+        // if sorted_group_uncommon.is_empty() {
+        //     return (vec![], HashSet::new(), -1.0);
+        // }
+        // if sorted_group_uncommon[0].clone().1.is_empty() {
+        //     return (vec![], HashSet::new(), -1.0);
+        // }
+        // sorted_group_uncommon[0].clone()
     }
 
     /// Split the graph into connected components
@@ -837,7 +891,11 @@ impl<G: GraphLike> Decomposer<G> {
     fn cut_pair0(g: &G, verts: &[V]) -> G {
         let mut g = g.clone();
         let n = verts.len() - 1;
-        *g.scalar_mut() *= ScalarN::Exact(-(n as i32), vec![1, 0, 0, 0]);
+        if n % 2 == 0 {
+            *g.scalar_mut() *= ScalarN::Exact(-(n as i32 >> 1), vec![1, 0, 0, 0]);
+        } else {
+            *g.scalar_mut() *= ScalarN::Exact(-((n as i32 + 1) >> 1), vec![0, 1, 0, -1]);
+        }
 
         for &v in &verts[1..] {
             g.remove_edge(verts[0], v);
@@ -854,13 +912,17 @@ impl<G: GraphLike> Decomposer<G> {
         let mut g = g.clone();
         let p = g.phase(verts[0]);
         let n = verts.len() - 1;
-        *g.scalar_mut() *= ScalarN::Exact(-(n as i32), vec![1, 0, 0, 0]);
+        if n % 2 == 0 {
+            *g.scalar_mut() *= ScalarN::Exact(-(n as i32 >> 1), vec![1, 0, 0, 0]);
+        } else {
+            *g.scalar_mut() *= ScalarN::Exact(-((n as i32 + 1) >> 1), vec![0, 1, 0, -1]);
+        }
         if p.denom() == &4 {
             match p.numer() {
-                &1 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, 1, 0, 0]),
-                &3 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, 0, 0, -1]),
-                &5 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, -1, 0, 0]),
-                &7 => *g.scalar_mut() *= ScalarN::Exact(1, vec![0, 0, 0, 1]),
+                &1 => *g.scalar_mut() *= ScalarN::Exact(0, vec![0, 1, 0, 0]),
+                &3 => *g.scalar_mut() *= ScalarN::Exact(0, vec![0, 0, 0, 1]),
+                &5 => *g.scalar_mut() *= ScalarN::Exact(0, vec![0, -1, 0, 0]),
+                &7 => *g.scalar_mut() *= ScalarN::Exact(0, vec![0, 0, 0, -1]),
                 _ => (),
             }
         }
