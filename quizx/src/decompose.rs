@@ -464,7 +464,7 @@ impl<G: GraphLike> Decomposer<G> {
         }
 
         // Add weight for T-spiders in a pair
-        for (v, v_neigh) in vertices_with_denom_1.clone() {
+        for (_, v_neigh) in vertices_with_denom_1.clone() {
             if v_neigh.len() != 2 {
                 continue;
             }
@@ -474,6 +474,7 @@ impl<G: GraphLike> Decomposer<G> {
         }
 
         // Initialize a hashmap to track uncommon elements between groups
+        // Keys: Pairs of 0-spiders, Values: Uncommon T-spiders
         let mut group_uncommon : HashMap<(V, V), HashSet<V>> = HashMap::new();
         for (i, i_neigh) in vertices_with_denom_1.clone() {
             for (j, j_neigh) in vertices_with_denom_1.clone() {
@@ -487,7 +488,8 @@ impl<G: GraphLike> Decomposer<G> {
 
         for (_, u) in group_uncommon {
             for v in u.clone() {
-                weights.entry(v).and_modify(|e| *e += 2.0 / u.len() as f64);
+                let nu = u.len() as f64;
+                weights.entry(v).and_modify(|e| *e += 2.0 / nu);
             }
         }
         
@@ -504,11 +506,11 @@ impl<G: GraphLike> Decomposer<G> {
         let mut nbs = Vec::new();
         let mut frac = -1.0;
         if let Some((max_key, max_val)) = max_weight {
-            nbs = vec![*max_key];
-            nbs.extend(g.neighbor_vec(*max_key));
-            if *max_val > 0.0 {
-                frac = 1.0 / max_val.clone() as f64;
+            if *max_val <= 0.0 {
+                return (nbs, frac);
             }
+            nbs = vec![*max_key];
+            frac = 1.0 / max_val.clone() as f64;    
         }
 
         (nbs, frac)
