@@ -39,7 +39,8 @@ fn meas_str(e: &[BasisElem]) -> String {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let debug = true;
-    let use_heur = true;
+    let use_heur = false;
+    let use_comp = true;
     let args: Vec<_> = env::args().collect();
     let (qs, depth, min_weight, max_weight, seed) = if args.len() >= 5 {
         (
@@ -139,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Stabiliser decomposition
     let mut d = Decomposer::new(&h);
     d.use_cats(true);
-    d.split_comps(true);
+    d.split_comps(use_comp);
     d.use_heur(use_heur);
     d.with_full_simp();
 
