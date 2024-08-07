@@ -44,22 +44,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let use_comp = true;
     let use_sub_comp = false;
     let args: Vec<_> = env::args().collect();
-    let (qs, depth, min_weight, max_weight, seed) = if args.len() >= 5 {
+    let (qs, depth,  seed) = if args.len() >= 3 {
         (
             args[1].parse().unwrap(),
             args[2].parse().unwrap(),
             args[3].parse().unwrap(),
-            args[4].parse().unwrap(),
-            args[5].parse().unwrap(),
         )
     } else {
-        (50, 70, 4, 4, 1337)
+        (50, 70, 1337)
         // (13, 15, 2, 4, 3, 1337)
     };
     if debug {
         println!(
-            "qubits: {}, depth: {}, min_weight: {}, max_weight: {}, seed: {}",
-            qs, depth, min_weight, max_weight, seed
+            "qubits: {}, depth: {}, seed: {}",
+            qs, depth, seed
         );
     }
 
@@ -75,15 +73,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut alphas = vec![];
     // let mut max_alpha: f64 = -1.0;
 
+    let depth = if qs > 50 { (depth + 200) >> 1 } else { depth };
+
     // for depth in (1..60).step_by(3) {
     depths.push(depth);
     // Get random circuit
-    let c = Circuit::random_pauli_gadget()
+    let c = Circuit::random_ccz()
         .qubits(qs)
-        .depth(depth)
+        .depth(depth * 10)
         .seed(seed)
-        .min_weight(min_weight)
-        .max_weight(max_weight)
+        .p_ccz(0.05)
+        .p_t(0.05)
+        .with_cliffords()
         .build();
 
     // let c = Circuit::random()
@@ -224,13 +225,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     alphas.iter().format(",")
     // );
     let data = format!(
-        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{:.6}\"\n",
+        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{:.6}\"\n",
         qs,
         depth,
         tcount,
         red_tcount,
-        min_weight,
-        max_weight,
         seed,
         d.nterms,
         time.as_millis(),
@@ -243,8 +242,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     fs::write(
         format!(
-            "pauli_gadget_{}_{}_{}_{}_{}",
-            qs, depth, min_weight, max_weight, seed
+            "rand_ccz_{}_{}_{}",
+            qs, depth, seed
         ),
         data,
     )

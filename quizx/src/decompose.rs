@@ -16,14 +16,19 @@
 
 use crate::graph::*;
 use crate::scalar::*;
-use hashbrown::HashMap;
+// use hashbrown::HashMap;
+// use hashbrown::HashSet;
+use hopcroft_karp::matching;
 use itertools::Itertools;
 use num::Rational64;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
+use rayon::vec;
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-use hopcroft_karp::matching;
+use std::hash::Hash;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum SimpFunc {
@@ -44,10 +49,12 @@ pub struct Decomposer<G: GraphLike> {
     random_t: bool,
     use_cats: bool,
     use_heur: bool,
+    use_paired_heur: bool,
+    use_sub_comp: bool,
     split_comps: bool,
     is_bench: bool,
     save: bool, // save graphs on 'done' stack
-    max_depth: usize
+    max_depth: usize,
 }
 
 // impl<G: GraphLike> Send for Decomposer<G> {}
@@ -77,10 +84,12 @@ impl<G: GraphLike> Decomposer<G> {
             random_t: false,
             use_cats: false,
             use_heur: false,
+            use_paired_heur: false,
+            use_sub_comp: false,
             split_comps: false,
             is_bench: false,
             save: false,
-            max_depth: 0
+            max_depth: 0,
         }
     }
 
@@ -153,6 +162,18 @@ impl<G: GraphLike> Decomposer<G> {
 
     pub fn use_heur(&mut self, b: bool) -> &mut Self {
         self.use_heur = b;
+        self.use_paired_heur = b;
+        self
+    }
+
+    pub fn use_paired_heur(&mut self, b: bool) -> &mut Self {
+        self.use_heur |= b;
+        self.use_paired_heur = b;
+        self
+    }
+
+    pub fn use_sub_comp(&mut self, b: bool) -> &mut Self {
+        self.use_sub_comp = b;
         self
     }
 
@@ -202,6 +223,21 @@ impl<G: GraphLike> Decomposer<G> {
             }
         }
 
+        if self.use_sub_comp {
+            let vs = Decomposer::sub_comp(&g).into_iter().collect_vec();
+            if !vs.is_empty() {
+                return self.push_decomp(
+                    &[
+                        Decomposer::replace_sub_comp_0,
+                        Decomposer::replace_sub_comp_1,
+                    ],
+                    depth + 1,
+                    &g,
+                    &vs,
+                );
+            }
+        }
+
         // for e in g.edges() {
         //     println!("{:?}", e.2);
         // }
@@ -209,7 +245,6 @@ impl<G: GraphLike> Decomposer<G> {
         if self.is_bench && depth % 5 == 0 {
             return self.decomp_bench_cut(depth, &g);
         }
-
 
         if self.use_cats {
             let cat_nodes = Decomposer::cat_ts(&g); //gadget_ts(&g);
@@ -234,32 +269,73 @@ impl<G: GraphLike> Decomposer<G> {
 
             // println!("new graph");
 
+            if self.use_heur {
+                let (vs, eff_a) = Decomposer::cut_v(&g);
+                // let vs_pg = Decomposer::cut_pg(&g);
+                let vs_pg = vec![];
+                let (vs_pair, eff_a_pair) = if self.use_paired_heur {
+                    Decomposer::cut_v_pair(&g)
+                } else {
+                    (vec![], -1.0)
+                };
+                // let (vs_pair, eff_a_pair) = Decomposer::cut_v_pair(&g);
+                // let (vs_pair, eff_a_pair) = (vec![], -1.0);
 
+                let mut should_cut_v = eff_a > 0.0;
+                let mut should_cut_v_pair = eff_a_pair > 0.0;
+                let should_cut_pg = !vs_pg.is_empty();
+                let mut bet_eff_a = f64::MAX;
+                let mut bet_vs = vec![];
 
-            let (vs, eff_a) = Decomposer::cut_v(&g);
-
-            if self.use_heur
-                && eff_a >= 0.0 && eff_a < 0.4
-                && ((nts == 4 && eff_a < 0.25)
-                    || (nts == 6 && eff_a < 0.264)
-                    || (nts == 5 && eff_a < 0.316)
-                    || (nts == 3 && eff_a < 0.333)
-                    || ((nts > 6 || nts < 3) && eff_a < 0.4))
-            {
-                // println!("using cut!");
-                // println!("eff_a {:?}, len vs {:?}, nts {}", eff_a, vs.len(), nts);
-                let mut i = 1;
-                for v in vs {
-                    let nv = vec![v];
-                    self.push_decomp(
-                        &[Decomposer::replace_t0, Decomposer::replace_t1],
-                        depth + i,
-                        &g,
-                        &nv,
-                    );
-                    i += 1;
+                if should_cut_v && eff_a < bet_eff_a {
+                    bet_eff_a = eff_a;
+                    bet_vs = vs;
                 }
-                return self;
+                if should_cut_v_pair && eff_a_pair < bet_eff_a {
+                    bet_eff_a = eff_a_pair;
+                    bet_vs = vs_pair;
+                    should_cut_v = false;
+                }
+                if should_cut_pg && 0.25 < bet_eff_a {
+                    bet_eff_a = 0.25;
+                    bet_vs = vs_pg;
+                    should_cut_v = false;
+                    should_cut_v_pair = false;
+                }
+
+                if bet_eff_a > 0.0
+                    && ((nts == 4 && bet_eff_a < 0.25)
+                        || (nts == 6 && bet_eff_a < 0.264)
+                        || (nts == 5 && bet_eff_a < 0.316)
+                        || (nts == 3 && bet_eff_a < 0.333)
+                        || ((nts > 6 || nts < 3) && bet_eff_a < 0.4))
+                {
+                    if should_cut_v {
+                        // println!("cutting v, eff_a: {:?}", bet_eff_a);
+                        return self.push_decomp(
+                            &[Decomposer::replace_t0, Decomposer::replace_t1],
+                            depth + 1,
+                            &g,
+                            &bet_vs,
+                        );
+                    } else if should_cut_v_pair {
+                        // println!("cutting cat4, eff_a: {:?}", bet_eff_a);
+                        return self.push_decomp(
+                            &[Decomposer::replace_tpair0, Decomposer::replace_tpair1],
+                            depth + 1,
+                            &g,
+                            &bet_vs,
+                        );
+                    } else if should_cut_pg {
+                        // println!("cutting pg, eff_a: {:?}", bet_eff_a);
+                        return self.push_decomp(
+                            &[Decomposer::cut_pg_0, Decomposer::cut_pg_0],
+                            depth + 1,
+                            &g,
+                            &bet_vs,
+                        );
+                    }
+                }
             }
 
             if !cat_nodes.is_empty() {
@@ -304,10 +380,24 @@ impl<G: GraphLike> Decomposer<G> {
                         return self.decomp_split_comps(&g, &g_comps, d);
                     }
                 }
+                if self.use_sub_comp {
+                    let vs = Decomposer::sub_comp(&g).into_iter().collect_vec();
+                    if !vs.is_empty() {
+                        return self.push_decomp(
+                            &[
+                                Decomposer::replace_sub_comp_0,
+                                Decomposer::replace_sub_comp_1,
+                            ],
+                            depth + 1,
+                            &g,
+                            &vs,
+                        );
+                    }
+                }
+
                 if self.is_bench && d % 5 == 0 {
                     return self.decomp_bench_cut(d, &g);
                 }
-
 
                 if self.use_cats {
                     let cat_nodes = Decomposer::cat_ts(&g); //gadget_ts(&g);
@@ -320,35 +410,72 @@ impl<G: GraphLike> Decomposer<G> {
                         }
                     });
 
-                    // if nts == 4 {
-                    //     // println!("using cat!");
-                    //     return self.push_cat_decomp(depth + 1, &g, &cat_nodes);
-                    // }
+                    if self.use_heur {
+                        let (vs, eff_a) = Decomposer::cut_v(&g);
+                        // let vs_pg = Decomposer::cut_pg(&g);
+                        let vs_pg = vec![];
+                        let (vs_pair, eff_a_pair) = if self.use_paired_heur {
+                            Decomposer::cut_v_pair(&g)
+                        } else {
+                            (vec![], -1.0)
+                        };
+                        // let (vs_pair, eff_a_pair) = (vec![], -1.0);
 
-                    let (vs, eff_a) = Decomposer::cut_v(&g);
+                        let mut should_cut_v = eff_a > 0.0;
+                        let mut should_cut_v_pair = eff_a_pair > 0.0;
+                        let should_cut_pg = !vs_pg.is_empty();
+                        let mut bet_eff_a = f64::MAX;
+                        let mut bet_vs = vec![];
 
-                    if self.use_heur
-                        && eff_a >= 0.0 && eff_a < 0.4
-                        && ((nts == 4 && eff_a < 0.25)
-                            || (nts == 6 && eff_a < 0.264)
-                            || (nts == 5 && eff_a < 0.316)
-                            || (nts == 3 && eff_a < 0.333)
-                            || ((nts > 6 || nts < 3) && eff_a < 0.4))
-                    {
-                        // println!("using cut!");
-                        // println!("eff_a {:?}, len vs {:?}, nts {}", eff_a, vs.len(), nts);
-                        let mut i = 1;
-                        for v in vs {
-                            let nv = vec![v];
-                            self.push_decomp(
-                                &[Decomposer::replace_t0, Decomposer::replace_t1],
-                                depth + i,
-                                &g,
-                                &nv,
-                            );
-                            i += 1;
+                        if should_cut_v && eff_a < bet_eff_a {
+                            bet_eff_a = eff_a;
+                            bet_vs = vs;
                         }
-                        return self;
+                        if should_cut_v_pair && eff_a_pair < bet_eff_a {
+                            bet_eff_a = eff_a_pair;
+                            bet_vs = vs_pair;
+                            should_cut_v = false;
+                        }
+                        if should_cut_pg && 0.25 < bet_eff_a {
+                            bet_eff_a = 0.25;
+                            bet_vs = vs_pg;
+                            should_cut_v = false;
+                            should_cut_v_pair = false;
+                        }
+
+                        if bet_eff_a > 0.0
+                            && ((nts == 4 && bet_eff_a < 0.25)
+                                || (nts == 6 && bet_eff_a < 0.264)
+                                || (nts == 5 && bet_eff_a < 0.316)
+                                || (nts == 3 && bet_eff_a < 0.333)
+                                || ((nts > 6 || nts < 3) && bet_eff_a < 0.4))
+                        {
+                            if should_cut_v {
+                                // println!("cutting v, eff_a: {:?}", bet_eff_a);
+                                return self.push_decomp(
+                                    &[Decomposer::replace_t0, Decomposer::replace_t1],
+                                    depth + 1,
+                                    &g,
+                                    &bet_vs,
+                                );
+                            } else if should_cut_v_pair {
+                                // println!("cutting cat4, eff_a: {:?}", bet_eff_a);
+                                return self.push_decomp(
+                                    &[Decomposer::replace_tpair0, Decomposer::replace_tpair1],
+                                    depth + 1,
+                                    &g,
+                                    &bet_vs,
+                                );
+                            } else if should_cut_pg {
+                                // println!("cutting pg, eff_a: {:?}", bet_eff_a);
+                                return self.push_decomp(
+                                    &[Decomposer::cut_pg_0, Decomposer::cut_pg_0],
+                                    depth + 1,
+                                    &g,
+                                    &bet_vs,
+                                );
+                            }
+                        }
                     }
 
                     if !cat_nodes.is_empty() {
@@ -460,7 +587,6 @@ impl<G: GraphLike> Decomposer<G> {
                         }
                     }
                 }
-
             }
 
             for v in g.neighbor_vec(*b) {
@@ -479,14 +605,13 @@ impl<G: GraphLike> Decomposer<G> {
                         }
                     }
                 }
-
             }
             match cnt_b.cmp(&cnt_a) {
                 std::cmp::Ordering::Equal => {
                     let n_neigh_a = g.neighbor_vec(*a).len();
                     let n_neigh_b = g.neighbor_vec(*b).len();
                     n_neigh_b.cmp(&n_neigh_a)
-                },
+                }
                 x => x,
             }
         });
@@ -513,9 +638,8 @@ impl<G: GraphLike> Decomposer<G> {
                                 cv_metrics.entry(2).and_modify(|e| *e += 2);
                             }
                         }
-                    } 
+                    }
                     cv_metrics.entry(0).and_modify(|e| *e += 1);
-                    
                 } else {
                     let n = g.neighbor_vec(w).len();
                     if !cv_metrics.contains_key(&n) {
@@ -528,14 +652,13 @@ impl<G: GraphLike> Decomposer<G> {
 
             let nv = vec![v];
             // nv.extend(g.neighbor_vec(v));
-        
+
             let mut h = Decomposer::new(g);
             h.use_cats(self.use_cats);
             h.split_comps(self.split_comps);
             h.use_heur(self.use_heur);
             h.is_bench(self.is_bench);
             h.with_full_simp();
-
 
             h.pop_graph();
             h.push_decomp(
@@ -552,7 +675,6 @@ impl<G: GraphLike> Decomposer<G> {
                 // best_decomp = Some(h);
                 best_nv = nv;
             }
-
         }
 
         if best_n_terms < usize::MAX {
@@ -605,6 +727,30 @@ impl<G: GraphLike> Decomposer<G> {
         t
     }
 
+    // Subgraph complement
+    fn sub_comp(g: &G) -> FxHashSet<V> {
+        // Get T spiders not in phase gadgets
+        let in_vs: FxHashSet<V> = g
+            .vertices()
+            .filter(|&v| g.phase(v).denom() == &4 && g.neighbor_vec(v).len() > 1)
+            .collect();
+        let n = in_vs.len();
+        if n < 2 {
+            return FxHashSet::default();
+        }
+
+        // > 3/4 complete, 3*n(n-1)/8 edges
+        let n_thresh = (3 * n * (n - 1)) >> 3;
+        let sg = g.induced_subgraph(&in_vs);
+        let n_edges = sg.num_edges();
+        let vs = if n_edges > n_thresh {
+            in_vs
+        } else {
+            FxHashSet::default()
+        };
+        vs
+    }
+
     // fn jaccard_similarity(set1: &[V], set2: &[V]) -> f64 {
     //     let set1: HashSet<_> = set1.iter().cloned().collect();
     //     let set2: HashSet<_> = set2.iter().cloned().collect();
@@ -615,22 +761,198 @@ impl<G: GraphLike> Decomposer<G> {
     //     intersection.len() as f64 / union.len() as f64
     // }
 
-    // fn uncommon_elements(a: &HashSet<V>, b: &HashSet<V>) -> HashSet<V> {
-    //     a.union(b)
-    //         .cloned()
-    //         .collect::<HashSet<_>>()
-    //         .difference(&a.intersection(b).cloned().collect::<HashSet<_>>())
-    //         .cloned()
-    //         .collect()
-    // }
+    // Cut paired v
+    pub fn cut_v_pair(g: &G) -> (Vec<V>, f64) {
+        // for v in g.vertices() {
+        //     let v_neigh = g.neighbor_vec(v);
+        //     if g.phase(v).denom() != &1 || v_neigh.len() != 4 {
+        //         continue;
+        //     }
+
+        //     let v_neigh_set = v_neigh.iter().cloned().collect::<HashSet<_>>();
+
+        //     for w in g.vertices() {
+        //         let w_neigh = g.neighbor_vec(w);
+        //         if g.phase(w).denom() != &1 || w_neigh.len() != 4 {
+        //             continue;
+        //         }
+
+        //         let w_neigh_set = w_neigh.iter().cloned().collect::<HashSet<_>>();
+
+        //         let mut common = v_neigh_set.intersection(&w_neigh_set).cloned().collect_vec();
+
+        //         if common.len() != 2 {
+        //             continue;
+        //         }
+
+        //         let mut vs = vec![v, w];
+        //         vs.append(&mut common);
+        //         return vs;
+
+        //     }
+        // }
+
+        let mut best_n = 0usize;
+        let mut best_vs = vec![];
+        let mut eff_a = -1.0;
+        for v in g.vertices() {
+            if g.phase(v).denom() != &4 {
+                continue;
+            }
+            let v_neigh0 = g
+                .neighbor_vec(v)
+                .iter()
+                .cloned()
+                .filter(|&w| g.phase(w).denom() == &1 && g.neighbor_vec(w).len() == 4)
+                .collect_vec();
+            let v_neight = g
+                .neighbor_vec(v)
+                .iter()
+                .cloned()
+                .filter(|&w| g.phase(w).denom() == &4 && g.neighbor_vec(w).len() == 2)
+                .collect_vec();
+
+
+            let v_neigh0_set = v_neigh0.iter().cloned().collect::<HashSet<_>>();
+            let v_neight_set = v_neight.iter().cloned().collect::<HashSet<_>>();
+
+            for w in g.vertices() {
+                if g.phase(w).denom() != &4 || w == v {
+                    continue;
+                }
+                let w_neigh0 = g
+                    .neighbor_vec(w)
+                    .iter()
+                    .cloned()
+                    .filter(|&w| g.phase(w).denom() == &1 && g.neighbor_vec(w).len() == 4)
+                    .collect_vec();
+                let w_neight = g
+                    .neighbor_vec(w)
+                    .iter()
+                    .cloned()
+                    .filter(|&w| g.phase(w).denom() == &4 && g.neighbor_vec(w).len() == 2)
+                    .collect_vec();
+
+                let w_neigh0_set = w_neigh0.iter().cloned().collect::<HashSet<_>>();
+                let w_neight_set = w_neight.iter().cloned().collect::<HashSet<_>>();
+
+                let common0 = v_neigh0_set
+                    .intersection(&w_neigh0_set)
+                    .cloned()
+                    .collect_vec();
+                let commont = v_neight_set
+                    .intersection(&w_neight_set)
+                    .cloned()
+                    .collect_vec();
+
+                let n0 = 2 * common0.len();
+                let nt = commont.len();
+
+                if n0 <= best_n && nt <= best_n {
+                    continue;
+                }
+
+                if n0 >= nt {
+                    best_n = n0;
+                    best_vs = common0;
+                    best_vs.append(vec![v, w].as_mut());
+                    eff_a = 1.0 / (n0 + 2) as f64;
+                } else {
+                    best_n = nt;
+                    best_vs = commont;
+                    best_vs.append(vec![v, w].as_mut());
+                    eff_a = 1.0 / (nt + 2) as f64;
+                }
+            }
+        }
+
+        (best_vs, eff_a)
+    }
+
+    fn uncommon_elements(a: &HashSet<V>, b: &HashSet<V>) -> HashSet<V> {
+        a.union(b)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&a.intersection(b).cloned().collect::<HashSet<_>>())
+            .cloned()
+            .collect()
+    }
+
+    pub fn cut_pg(g: &G) -> Vec<V> {
+        let mut processed_pairs = HashSet::new();
+
+        // Add weight for T-spiders in a pair
+        for v in g.vertices() {
+            let v_neigh = g.neighbor_vec(v);
+            // let n = v_neigh.len();
+            if *g.phase(v).denom() != 1 {
+                continue;
+            }
+            for w in g.vertices() {
+                if g.phase(w).denom() != &1 {
+                    continue;
+                }
+                let pair = (v.min(w), v.max(w));
+                if v == w || processed_pairs.contains(&pair) {
+                    continue;
+                }
+                processed_pairs.insert(pair);
+
+                let w_neigh_set = g.neighbor_vec(w).iter().cloned().collect::<HashSet<_>>();
+                let v_neigh_set = v_neigh.iter().cloned().collect::<HashSet<_>>();
+
+                // phase gadget heuristic
+                let uncommon = Self::uncommon_elements(&v_neigh_set, &w_neigh_set)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                if uncommon.len() != 4 {
+                    continue;
+                }
+
+                // let (x0, x1, x2) = uncommon.iter().collect_tuple().unwrap();
+                // let (n0, n1, n2) = uncommon.iter().map(|x| g.neighbor_vec(*x).len()).collect_tuple().unwrap();
+
+                // let bv = uncommon.iter().map(|x| v_neigh_set.contains(x)).collect_vec();
+                // let bw = uncommon.iter().map(|x| w_neigh_set.contains(x)).collect_vec();
+                let bv = uncommon
+                    .iter()
+                    .filter(|x| v_neigh_set.contains(x))
+                    .cloned()
+                    .collect_vec();
+                let bw = uncommon
+                    .iter()
+                    .filter(|x| w_neigh_set.contains(x))
+                    .cloned()
+                    .collect_vec();
+
+                let mut poss_cut: Vec<V>;
+                let cv: V;
+
+                if bv.len() > 1 {
+                    cv = v;
+                    poss_cut = bv;
+                } else {
+                    cv = w;
+                    poss_cut = bw;
+                };
+
+                poss_cut.sort_by_key(|v| g.neighbor_vec(*v).len());
+
+                poss_cut.insert(0, cv);
+
+                return poss_cut;
+                
+            }
+        }
+        return vec![];
+    }
 
     pub fn cut_v(g: &G) -> (Vec<V>, f64) {
         let mut vertices_with_denom_1 = HashMap::new();
         let mut vertices_with_denom_4 = HashMap::new();
         let mut weights = HashMap::new();
+        let mut weights5 = HashMap::new();
         // let mut weights2 = HashMap::new();
-        
-        
 
         for v in g.vertices() {
             if *g.phase(v).denom() == 1 {
@@ -654,6 +976,7 @@ impl<G: GraphLike> Decomposer<G> {
                 // if g.neighbor_vec(v).len() >= 2 {
                 vertices_with_denom_4.insert(v, filtered_neighbours);
                 weights.insert(v, 0.0);
+                weights5.insert(v, 0.0);
                 // weights2.insert(v, 0.0);
                 // }
             }
@@ -672,6 +995,11 @@ impl<G: GraphLike> Decomposer<G> {
                     }
                     // cat3 vertices should not be part of phase gadget cuts
                     continue;
+                } else if n == 5 {
+                    // cat5 heuristic
+                    for w in v_neigh.clone() {
+                        weights5.entry(w).and_modify(|e| *e += 1.0);
+                    }
                 }
 
                 // for w in g.vertices() {
@@ -689,39 +1017,49 @@ impl<G: GraphLike> Decomposer<G> {
 
                 //     // phase gadget heuristic
                 //     let uncommon = Self::uncommon_elements(&v_neigh_set, &w_neigh_set).into_iter().collect::<Vec<_>>();
-                //     if uncommon.len() != 3 {
+                //     if uncommon.len() != 4 {
                 //         continue;
                 //     }
 
                 //     // let (x0, x1, x2) = uncommon.iter().collect_tuple().unwrap();
                 //     // let (n0, n1, n2) = uncommon.iter().map(|x| g.neighbor_vec(*x).len()).collect_tuple().unwrap();
 
-                //     let bv = uncommon.iter().map(|x| v_neigh_set.contains(x)).collect_vec();
-                //     let bw = uncommon.iter().map(|x| w_neigh_set.contains(x)).collect_vec();
+                //     // let bv = uncommon.iter().map(|x| v_neigh_set.contains(x)).collect_vec();
+                //     // let bw = uncommon.iter().map(|x| w_neigh_set.contains(x)).collect_vec();
+                //     let bv = uncommon.iter().map(|x| v_neigh_set.contains(x)).filter(|x| *x);
+                //     let bw = uncommon.iter().map(|x| w_neigh_set.contains(x)).filter(|x| *x);
 
-                //     let mut poss_cut = vec![];
+                //     // let mut poss_cut = vec![];
 
-                //     for i in 0..3 {
-                //         for j in i..3 {
-                //             if i == j {
-                //                 continue;
-                //             }
-                //             if (bv[i] && bv[j]) || (bw[i] && bw[j]) {
-                //                 poss_cut = vec![uncommon[i], uncommon[j]];
-                //                 break;
-                //             }
+                //     let mut poss_cut = if bv.count() > 1 {
+                //         bv.collect_vec()
+                //     } else {
+                //         bw.collect_vec()
+                //     };
+
+                //     poss_cut.sort_by_key(|v| g.neighbor_vec(*v).len());
+
+                // for i in 0..3 {
+                //     for j in i..3 {
+                //         if i == j {
+                //             continue;
+                //         }
+                //         if (bv[i] && bv[j]) || (bw[i] && bw[j]) {
+                //             poss_cut = vec![uncommon[i], uncommon[j]];
+                //             break;
                 //         }
                 //     }
+                // }
 
-                //     let poss_cut_n = poss_cut.iter().map(|x| g.neighbor_vec(*x).len() == 1).collect_vec();
-                //     if poss_cut_n[0] && poss_cut_n[1] {
-                //         weights.entry(poss_cut[0]).and_modify(|e| *e += 2.0);
-                //         weights.entry(poss_cut[1]).and_modify(|e| *e += 2.0);
-                //     } else if poss_cut_n[0] {
-                //         weights.entry(poss_cut[1]).and_modify(|e| *e += 2.0);
-                //     } else if poss_cut_n[1] {
-                //         weights.entry(poss_cut[0]).and_modify(|e| *e += 2.0);
-                //     }
+                // let poss_cut_n = poss_cut.iter().map(|x| g.neighbor_vec(*x).len() == 1).collect_vec();
+                // if poss_cut_n[0] && poss_cut_n[1] {
+                //     weights.entry(poss_cut[0]).and_modify(|e| *e += 2.0);
+                //     weights.entry(poss_cut[1]).and_modify(|e| *e += 2.0);
+                // } else if poss_cut_n[0] {
+                //     weights.entry(poss_cut[1]).and_modify(|e| *e += 2.0);
+                // } else if poss_cut_n[1] {
+                //     weights.entry(poss_cut[0]).and_modify(|e| *e += 2.0);
+                // }
                 // }
 
                 // if n != 3 {
@@ -742,7 +1080,6 @@ impl<G: GraphLike> Decomposer<G> {
                 for w in v_neigh {
                     weights.entry(w).and_modify(|e| *e += 1.0);
                 }
-
             }
         }
 
@@ -775,7 +1112,6 @@ impl<G: GraphLike> Decomposer<G> {
         //         //     }
         //         //     v_edges.push((w, x));
         //         // }
-
 
         //         // if !uv.contains_key(&n) {
         //         //     uv.insert(n, HashSet::new());
@@ -910,6 +1246,11 @@ impl<G: GraphLike> Decomposer<G> {
         //     }
         // }
 
+        for (k, _v) in weights.clone() {
+            let ncut5 = *weights5.get(&k).unwrap();
+            weights.entry(k).and_modify(|e| *e = f64::max(*e, (*e + 4.0 * ncut5) / (ncut5 + 1.0)));
+        }
+
         let max_weight = weights.iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap());
         let mut nbs = Vec::new();
         let mut frac = -1.0;
@@ -942,6 +1283,7 @@ impl<G: GraphLike> Decomposer<G> {
         for v in g.vertices() {
             if g.phase(v).denom() == &1 {
                 let mut neigh = g.neighbor_vec(v);
+                neigh.sort_by_key(|v| g.neighbor_vec(*v).len());
                 if neigh.len() <= 6 {
                     if let Some(this_ind) = prefered_order.iter().position(|&r| r == neigh.len()) {
                         match index {
@@ -1102,6 +1444,7 @@ impl<G: GraphLike> Decomposer<G> {
             // println!("cat4");
             self.push_decomp(
                 &[Decomposer::replace_cat4_0, Decomposer::replace_cat4_1],
+                // &[Decomposer::cut_cat4_0, Decomposer::cut_cat4_1],
                 depth,
                 &g,
                 &verts,
@@ -1110,6 +1453,194 @@ impl<G: GraphLike> Decomposer<G> {
             println!("this shouldn't be printed");
             self
         }
+    }
+
+    fn reverse_pivot(g: &mut G, vs0: &[V], vs1: &[V]) -> Vec<V> {
+        let x = vs0.len() as i32;
+        let y = vs1.len() as i32;
+        g.scalar_mut().mul_sqrt2_pow(-(x - 1) * (y - 1));
+
+        let v0 = g.add_vertex(VType::Z);
+        let v1 = g.add_vertex(VType::Z);
+
+        // Revert the edges between the neighbors of v0 and v1
+        for &n0 in vs0 {
+            for &n1 in vs1 {
+                g.remove_edge(n0, n1);
+            }
+        }
+
+        // Restore the original neighbors of v0 and v1
+        for &n0 in vs0 {
+            g.add_edge_smart(v0, n0, EType::H);
+        }
+        for &n1 in vs1 {
+            g.add_edge_smart(v1, n1, EType::H);
+        }
+
+        g.add_edge_smart(v0, v1, EType::H);
+
+        vec![v0, v1]
+    }
+
+    fn replace_tpair0(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+
+        let n = verts.len();
+
+        let vs0 = Decomposer::reverse_pivot(&mut g, &verts[..n-2], &verts[n-2..]);
+
+        Decomposer::replace_p0(&g, &vs0[..1])
+    }
+
+    fn replace_tpair1(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+
+        let n = verts.len();
+
+        let vs0 = Decomposer::reverse_pivot(&mut g, &verts[..n-2], &verts[n-2..]);
+
+        Decomposer::replace_p1(&g, &vs0[..1])
+    }
+
+    fn cut_pg_0(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+
+        let x = g.add_vertex(VType::Z);
+
+        for &v in &verts[2..] {
+            g.remove_edge(v, verts[0]);
+            g.add_edge_with_type(x, v, EType::H);
+        }
+
+        let w = g.add_vertex(VType::Z);
+        g.add_edge_with_type(x, w, EType::H);
+        g.add_edge_with_type(verts[0], w, EType::H);
+
+        // Cut decomposition
+        Decomposer::replace_p0(&g, &[w])
+    }
+
+    fn cut_pg_1(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+
+        let x = g.add_vertex(VType::Z);
+
+        for &v in &verts[2..] {
+            g.remove_edge(v, verts[0]);
+            g.add_edge_with_type(x, v, EType::H);
+        }
+
+        let w = g.add_vertex(VType::Z);
+        g.add_edge_with_type(x, w, EType::H);
+        g.add_edge_with_type(verts[0], w, EType::H);
+
+        // Cut decomposition
+        Decomposer::replace_p1(&g, &[w])
+    }
+
+    fn cut_cat4_0(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+
+        // Spider (un)fusing
+        // g.remove_vertex(verts[0]);
+        // let v0 = g.add_vertex(VType::Z);
+        let v1 = g.add_vertex(VType::Z);
+
+        g.remove_edge(verts[0], verts[3]);
+        g.remove_edge(verts[0], verts[4]);
+        // g.add_edge_with_type(verts[1], v0, EType::H);
+        // g.add_edge_with_type(verts[2], v0, EType::H);
+        g.add_edge_with_type(verts[3], v1, EType::H);
+        g.add_edge_with_type(verts[4], v1, EType::H);
+
+        // Identity spider
+        let w = g.add_vertex(VType::Z);
+        // g.add_edge_with_type(v0, w, EType::H);
+        g.add_edge_with_type(v1, w, EType::H);
+        g.add_edge_with_type(verts[0], w, EType::H);
+
+        // Cut decomposition
+        Decomposer::replace_p0(&g, &[w])
+    }
+
+    fn cut_cat4_1(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+
+        // Spider (un)fusing
+        // g.remove_vertex(verts[0]);
+        // let v0 = g.add_vertex(VType::Z);
+        let v1 = g.add_vertex(VType::Z);
+
+        g.remove_edge(verts[0], verts[3]);
+        g.remove_edge(verts[0], verts[4]);
+        // g.add_edge_with_type(verts[1], v0, EType::H);
+        // g.add_edge_with_type(verts[2], v0, EType::H);
+        g.add_edge_with_type(verts[3], v1, EType::H);
+        g.add_edge_with_type(verts[4], v1, EType::H);
+
+        // Identity spider
+        let w = g.add_vertex(VType::Z);
+        // g.add_edge_with_type(v0, w, EType::H);
+        g.add_edge_with_type(v1, w, EType::H);
+        g.add_edge_with_type(verts[0], w, EType::H);
+
+        // Cut decomposition
+        Decomposer::replace_p1(&g, &[w])
+    }
+
+    // Basically the reverse of LC - basic_rules::local_comp_unchecked
+    fn replace_sub_comp_0(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+        let p = Rational64::new(1, 2);
+
+        let x = verts.len() as i32;
+        g.scalar_mut().mul_sqrt2_pow(((x - 1) * (x - 2)) / 2);
+        g.scalar_mut().mul_phase(Rational64::new(-*p.numer(), 4));
+
+        // let v = g.add_vertex_with_phase(VType::Z, p);
+        let v = g.add_vertex(VType::Z);
+
+        for i in 0..verts.len() {
+            g.add_to_phase(verts[i], p);
+            g.add_edge_with_type(verts[i], v, EType::H);
+            for j in (i + 1)..verts.len() {
+                g.add_edge_smart(verts[i], verts[j], EType::H);
+            }
+        }
+
+        *g.scalar_mut() *= ScalarN::Exact(-1, vec![0, 1, 0, -1]);
+        let w = g.add_vertex(VType::Z);
+        g.add_edge_with_type(v, w, EType::H);
+        // g.add_to_phase(v, Rational64::new(-1, 4));
+
+        g
+    }
+
+    fn replace_sub_comp_1(g: &G, verts: &[V]) -> G {
+        let mut g = g.clone();
+        let p = Rational64::new(1, 2);
+
+        let x = verts.len() as i32;
+        g.scalar_mut().mul_sqrt2_pow(((x - 1) * (x - 2)) / 2);
+        g.scalar_mut().mul_phase(Rational64::new(-*p.numer(), 4));
+
+        // let v = g.add_vertex_with_phase(VType::Z, p);
+        let v = g.add_vertex(VType::Z);
+
+        for i in 0..verts.len() {
+            g.add_to_phase(verts[i], p);
+            g.add_edge_with_type(verts[i], v, EType::H);
+            for j in (i + 1)..verts.len() {
+                g.add_edge_smart(verts[i], verts[j], EType::H);
+            }
+        }
+
+        // i/sqrt{2}
+        *g.scalar_mut() *= ScalarN::Exact(-1, vec![0, 1, 0, 1]);
+        let w = g.add_vertex_with_phase(VType::Z, Rational64::one());
+        g.add_edge_with_type(v, w, EType::H);
+        g
     }
 
     fn replace_cat6_0(g: &G, verts: &[V]) -> G {
@@ -1341,6 +1872,25 @@ impl<G: GraphLike> Decomposer<G> {
         let w = g.add_vertex_with_phase(VType::Z, Rational64::one());
         g.add_edge_with_type(verts[0], w, EType::H);
         g.add_to_phase(verts[0], Rational64::new(-1, 4));
+        g
+    }
+
+    // Cut 0-spider
+    fn replace_p0(g: &G, verts: &[V]) -> G {
+        // println!("replace_p0");
+        let mut g = g.clone();
+        *g.scalar_mut() *= ScalarN::Exact(-1, vec![0, 1, 0, -1]);
+        let w = g.add_vertex(VType::Z);
+        g.add_edge_with_type(verts[0], w, EType::H);
+        g
+    }
+
+    fn replace_p1(g: &G, verts: &[V]) -> G {
+        // println!("replace_p1");
+        let mut g = g.clone();
+        *g.scalar_mut() *= ScalarN::Exact(-1, vec![0, 1, 0, -1]);
+        let w = g.add_vertex_with_phase(VType::Z, Rational64::one());
+        g.add_edge_with_type(verts[0], w, EType::H);
         g
     }
 }
