@@ -114,7 +114,8 @@ impl<G: GraphLike> Decomposer<G> {
                 .with_simp(self.simp_func)
                 .split_comps(self.split_comps)
                 .use_cats(self.use_cats)
-                .use_heur(self.use_heur);
+                .use_heur(self.use_heur)
+                .use_paired_heur(self.use_paired_heur);
             ds.push(d1);
         }
         ds.push(self);
@@ -544,6 +545,7 @@ impl<G: GraphLike> Decomposer<G> {
             d.use_cats(self.use_cats);
             d.split_comps(self.split_comps);
             d.use_heur(self.use_heur);
+            d.use_paired_heur(self.use_paired_heur);
             d.with_full_simp();
 
             let depth = if depth > self.max_depth {

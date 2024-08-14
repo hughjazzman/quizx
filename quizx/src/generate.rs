@@ -443,10 +443,6 @@ impl RandomIqpBuilder {
         self.qubits = qubits;
         self
     }
-    // pub fn depth(&mut self, depth: usize) -> &mut Self {
-    //     self.depth = depth
-    //     self
-    // }
 
     pub fn build(&mut self) -> Circuit {
         let mut c = Circuit::new(self.qubits);
@@ -475,6 +471,12 @@ impl RandomIqpBuilder {
                 c.add_gate("cx", vec![i, j]);
                 c.add_gate_with_phase("rz", vec![j], Rational64::new(-n_sgate, 4));
                 c.add_gate("cx", vec![i, j]);
+
+
+                // phase gate between qubit i and j
+                // c.push(Gate::new(CNOT, vec![i, j]));
+                // c.add_gate_with_phase("rz", vec![i], Rational64::new(t_phase, 4));
+                // c.push(Gate::new(CNOT, vec![i, j]));
             }
             //final layer of Hadamard
             c.add_gate("h", vec![i]);
