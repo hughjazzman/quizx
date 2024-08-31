@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut alphas = vec![];
     // let mut max_alpha: f64 = -1.0;
 
-    let depth = if qs > 50 { (depth + 200) >> 1 } else { depth };
+    let depth = if qs > 50 { depth + qs } else { depth };
 
     // for depth in (1..60).step_by(3) {
     depths.push(depth);

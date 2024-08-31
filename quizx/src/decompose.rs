@@ -16,19 +16,14 @@
 
 use crate::graph::*;
 use crate::scalar::*;
-// use hashbrown::HashMap;
-// use hashbrown::HashSet;
-use hopcroft_karp::matching;
 use itertools::Itertools;
 use num::Rational64;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
-use rayon::vec;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-use std::hash::Hash;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum SimpFunc {
@@ -753,47 +748,8 @@ impl<G: GraphLike> Decomposer<G> {
         vs
     }
 
-    // fn jaccard_similarity(set1: &[V], set2: &[V]) -> f64 {
-    //     let set1: HashSet<_> = set1.iter().cloned().collect();
-    //     let set2: HashSet<_> = set2.iter().cloned().collect();
-
-    //     let intersection: HashSet<_> = set1.intersection(&set2).collect();
-    //     let union: HashSet<_> = set1.union(&set2).collect();
-
-    //     intersection.len() as f64 / union.len() as f64
-    // }
-
     // Cut paired v
     pub fn cut_v_pair(g: &G) -> (Vec<V>, f64) {
-        // for v in g.vertices() {
-        //     let v_neigh = g.neighbor_vec(v);
-        //     if g.phase(v).denom() != &1 || v_neigh.len() != 4 {
-        //         continue;
-        //     }
-
-        //     let v_neigh_set = v_neigh.iter().cloned().collect::<HashSet<_>>();
-
-        //     for w in g.vertices() {
-        //         let w_neigh = g.neighbor_vec(w);
-        //         if g.phase(w).denom() != &1 || w_neigh.len() != 4 {
-        //             continue;
-        //         }
-
-        //         let w_neigh_set = w_neigh.iter().cloned().collect::<HashSet<_>>();
-
-        //         let mut common = v_neigh_set.intersection(&w_neigh_set).cloned().collect_vec();
-
-        //         if common.len() != 2 {
-        //             continue;
-        //         }
-
-        //         let mut vs = vec![v, w];
-        //         vs.append(&mut common);
-        //         return vs;
-
-        //     }
-        // }
-
         let mut best_n = 0usize;
         let mut best_vs = vec![];
         let mut eff_a = -1.0;
@@ -813,7 +769,6 @@ impl<G: GraphLike> Decomposer<G> {
                 .cloned()
                 .filter(|&w| g.phase(w).denom() == &4 && g.neighbor_vec(w).len() == 2)
                 .collect_vec();
-
 
             let v_neigh0_set = v_neigh0.iter().cloned().collect::<HashSet<_>>();
             let v_neight_set = v_neight.iter().cloned().collect::<HashSet<_>>();
@@ -911,11 +866,6 @@ impl<G: GraphLike> Decomposer<G> {
                     continue;
                 }
 
-                // let (x0, x1, x2) = uncommon.iter().collect_tuple().unwrap();
-                // let (n0, n1, n2) = uncommon.iter().map(|x| g.neighbor_vec(*x).len()).collect_tuple().unwrap();
-
-                // let bv = uncommon.iter().map(|x| v_neigh_set.contains(x)).collect_vec();
-                // let bw = uncommon.iter().map(|x| w_neigh_set.contains(x)).collect_vec();
                 let bv = uncommon
                     .iter()
                     .filter(|x| v_neigh_set.contains(x))
@@ -943,7 +893,6 @@ impl<G: GraphLike> Decomposer<G> {
                 poss_cut.insert(0, cv);
 
                 return poss_cut;
-                
             }
         }
         return vec![];
@@ -1003,75 +952,6 @@ impl<G: GraphLike> Decomposer<G> {
                         weights5.entry(w).and_modify(|e| *e += 1.0);
                     }
                 }
-
-                // for w in g.vertices() {
-                //     if g.phase(w).denom() != &1 || g.neighbor_vec(w).len() == 3 {
-                //         continue;
-                //     }
-                //     let pair = (v.min(w), v.max(w));
-                //     if v == w || processed_pairs.contains(&pair) {
-                //         continue;
-                //     }
-                //     processed_pairs.insert(pair);
-
-                //     let w_neigh_set = g.neighbor_vec(w).iter().cloned().collect::<HashSet<_>>();
-                //     let v_neigh_set = v_neigh.iter().cloned().collect::<HashSet<_>>();
-
-                //     // phase gadget heuristic
-                //     let uncommon = Self::uncommon_elements(&v_neigh_set, &w_neigh_set).into_iter().collect::<Vec<_>>();
-                //     if uncommon.len() != 4 {
-                //         continue;
-                //     }
-
-                //     // let (x0, x1, x2) = uncommon.iter().collect_tuple().unwrap();
-                //     // let (n0, n1, n2) = uncommon.iter().map(|x| g.neighbor_vec(*x).len()).collect_tuple().unwrap();
-
-                //     // let bv = uncommon.iter().map(|x| v_neigh_set.contains(x)).collect_vec();
-                //     // let bw = uncommon.iter().map(|x| w_neigh_set.contains(x)).collect_vec();
-                //     let bv = uncommon.iter().map(|x| v_neigh_set.contains(x)).filter(|x| *x);
-                //     let bw = uncommon.iter().map(|x| w_neigh_set.contains(x)).filter(|x| *x);
-
-                //     // let mut poss_cut = vec![];
-
-                //     let mut poss_cut = if bv.count() > 1 {
-                //         bv.collect_vec()
-                //     } else {
-                //         bw.collect_vec()
-                //     };
-
-                //     poss_cut.sort_by_key(|v| g.neighbor_vec(*v).len());
-
-                // for i in 0..3 {
-                //     for j in i..3 {
-                //         if i == j {
-                //             continue;
-                //         }
-                //         if (bv[i] && bv[j]) || (bw[i] && bw[j]) {
-                //             poss_cut = vec![uncommon[i], uncommon[j]];
-                //             break;
-                //         }
-                //     }
-                // }
-
-                // let poss_cut_n = poss_cut.iter().map(|x| g.neighbor_vec(*x).len() == 1).collect_vec();
-                // if poss_cut_n[0] && poss_cut_n[1] {
-                //     weights.entry(poss_cut[0]).and_modify(|e| *e += 2.0);
-                //     weights.entry(poss_cut[1]).and_modify(|e| *e += 2.0);
-                // } else if poss_cut_n[0] {
-                //     weights.entry(poss_cut[1]).and_modify(|e| *e += 2.0);
-                // } else if poss_cut_n[1] {
-                //     weights.entry(poss_cut[0]).and_modify(|e| *e += 2.0);
-                // }
-                // }
-
-                // if n != 3 {
-                //     continue;
-                // }
-
-                // for w in v_neigh {
-                //     weights.entry(w).and_modify(|e| *e += 2.0 / ((n - 2) as f64));
-                // }
-                // weights.entry(v).and_modify(|e| *e += 1.0);
             } else {
                 // Removing itself from the cut
                 weights.entry(v).and_modify(|e| *e += 1.0);
@@ -1085,172 +965,11 @@ impl<G: GraphLike> Decomposer<G> {
             }
         }
 
-        // let mut union_nn = HashMap::new();
-        // let mut ncut_n = HashMap::new();
-        // let mut num_n_all = HashMap::new();
-        // let mut bi_match = HashMap::new();
-
-        // let max_catn = 3;
-
-        // for (v, v_neigh) in vertices_with_denom_4.clone() {
-        //     let mut uv: HashSet<V> = HashSet::new();
-        //     // let mut uv: HashMap<usize, HashSet<V>> = HashMap::new();
-        //     // let mut num_n = HashMap::new();
-        //     // ncut_n.insert(v, 0.0);
-        //     // let mut v_edges = vec![];
-        //     for w in v_neigh {
-        //         // let w_neigh = vertices_with_denom_1.get(&w).unwrap();
-        //         let w_neigh = g.neighbor_vec(w);
-        //         let n = w_neigh.len();
-        //         // println!("n: {}", n);
-        //         // limit how long the cut sequence is
-        //         if n > max_catn {
-        //             continue;
-        //         }
-
-        //         // for x in w_neigh.clone() {
-        //         //     if g.neighbor_vec(x).len() < 2 {
-        //         //         continue;
-        //         //     }
-        //         //     v_edges.push((w, x));
-        //         // }
-
-        //         // if !uv.contains_key(&n) {
-        //         //     uv.insert(n, HashSet::new());
-        //         //     num_n.insert(n, 0);
-        //         // }
-
-        //         // uv.entry(n).and_modify(|f| f.extend(w_neigh));
-        //         // num_n.entry(n).and_modify(|f| *f += 1);
-
-        //         uv.extend(w_neigh);
-        //         // ncut_n.entry(v).and_modify(|e| *e += (n - 3) as f64);
-
-        //         // To signify the reduction of terms in catn decomposition
-        //         // if n == 5 {
-        //         //     println!("n == 5");
-        //         //     ncut_n.entry(v).and_modify(|e| *e += 1.0 - (3.0_f64).log2());
-        //         // } else if n == 7 {
-        //         //     println!("n == 7");
-        //         //     ncut_n.entry(v).and_modify(|e| *e -= 1.0);
-        //         // }
-        //     }
-        //     union_nn.insert(v, uv);
-        //     // num_n_all.insert(v, num_n);
-        //     // ncut_n.entry(v).and_modify(|e| *e += 1.0);
-
-        //     // let res_match = matching(&v_edges);
-        //     // bi_match.insert(v, res_match.len());
-        // }
-
-        // // let mut tts = HashMap::new();
-
-        // for (v, uv) in union_nn {
-        //     // num cuts needed
-        //     // let ncut = *ncut_n.get(&v).unwrap();
-        //     // T reduced
-        //     let k = vertices_with_denom_4.get(&v).unwrap().into_iter().filter(
-        //         |&w| g.neighbor_vec(*w).len() <= max_catn
-        //     ).count();
-        //     if k < 2 {
-        //         continue;
-        //     }
-        //     // // // let rt = uv.len() + num_seq_n_or_less;
-        //     let rt = uv.len();
-        //     // higher degree vertices have more weight
-        //     // let frt = rt as f64 + 0.1 * g.neighbor_vec(v).len() as f64;
-        //     // let ncuts = (rt - k - bi_match.get(&v).unwrap()) as f64;
-        //     let ncuts = (rt - 2*k) as f64;
-        //     // tts.insert(v, rt);
-        //     // println!("rt: {}, k: {}", rt, k);
-
-        //     // let mut best_rt = 0usize;
-        //     // let mut best_k = usize::MAX;
-        //     // let mut best_weight = 0.0f64;
-        //     // let mut cur_uv: HashSet<V> = HashSet::new();
-        //     // let mut k = 0usize;
-        //     // let num_n = num_n_all.get(&v).unwrap();
-
-        //     // let mut keys = uv.keys().collect::<Vec<_>>();
-        //     // keys.sort_unstable();
-
-        //     // for n in keys {
-        //     //     let u = uv.get(n).unwrap();
-        //     //     // let rt = u.len();
-        //     //     let n_k = num_n.get(n).unwrap();
-
-        //     //     let rt_before = cur_uv.len();
-        //     //     cur_uv.extend(u);
-        //     //     let rt_after = cur_uv.len();
-
-        //     //     k += n_k;
-
-        //     //     let rt = cur_uv.len();
-
-        //     //     let nlegs = (*n - 2) as f64;
-
-        //     //     let mul = 1.0 + 1.0 / nlegs;
-        //     //     let k_mul = k as f64 * mul;
-
-        //     //     let weight = rt as f64 / (rt as f64 - k_mul);
-        //     //     best_weight = best_weight.max(weight);
-        //     //     // if weight > best_weight {
-        //     //     //     best_weight = weight;
-        //     //     //     best_rt = rt;
-        //     //     //     best_k = k;
-        //     //     // }
-        //     // }
-
-        //     // weights.insert(v, best_weight);
-        //     weights.insert(v, rt as f64 / ncuts);
-
-        //     // let h1 = weights.get(&v).unwrap();
-        //     // let h2 = weights2.get(&v).unwrap();
-        //     // if *h1 >= 1.0 || *h2 > 1.0 {
-        //     //     println!("v: {}, v2: {}", h1, h2);
-        //     // }
-        // }
-
-        // Initialize a hashmap to track uncommon elements between groups
-        // Keys: Pairs of 0-spiders, Values: Uncommon T-spiders
-        // let mut group_uncommon: HashMap<(V, V), HashSet<V>> = HashMap::new();
-        // for v in g.vertices() {
-        //     if *g.phase(v).denom() != 1 {
-        //         continue;
-        //     }
-        //     let v_neigh : HashSet<V> = g.neighbor_vec(v).iter().cloned().collect();
-        //     for w in g.vertices() {
-        //         if *g.phase(w).denom() != 1 || v == w {
-        //             continue;
-        //         }
-        //         let w_neigh : HashSet<V> = g.neighbor_vec(w).iter().cloned().collect();
-
-        //         let pair = (v.min(w), v.max(w));
-        //         if group_uncommon.contains_key(&pair) {
-        //             continue;
-        //         }
-        //         group_uncommon.insert(pair, Self::uncommon_elements(&v_neigh, &w_neigh));
-        //     }
-        // }
-
-        // for (_, u) in group_uncommon {
-        //     for v in u.clone() {
-        //         if !ncut_n.contains_key(&v) {
-        //             continue;
-        //         }
-        //         let nu = u.len() as f64 - 2.0;
-        //         // weights.entry(v).and_modify(|e| *e += 1.0 / nu);
-        //         ncut_n.entry(v).and_modify(|e| *e += nu - 1.0);
-        //         tts.entry(v).and_modify(|e| *e += 2);
-        //         let ncut = *ncut_n.get(&v).unwrap();
-        //         let rt = *tts.get(&v).unwrap();
-        //         weights.insert(v, rt as f64 / ncut as f64);
-        //     }
-        // }
-
         for (k, _v) in weights.clone() {
             let ncut5 = *weights5.get(&k).unwrap();
-            weights.entry(k).and_modify(|e| *e = f64::max(*e, (*e + 4.0 * ncut5) / (ncut5 + 1.0)));
+            weights
+                .entry(k)
+                .and_modify(|e| *e = f64::max(*e, (*e + 4.0 * ncut5) / (ncut5 + 1.0)));
         }
 
         let max_weight = weights.iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap());
@@ -1490,7 +1209,7 @@ impl<G: GraphLike> Decomposer<G> {
 
         let n = verts.len();
 
-        let vs0 = Decomposer::reverse_pivot(&mut g, &verts[..n-2], &verts[n-2..]);
+        let vs0 = Decomposer::reverse_pivot(&mut g, &verts[..n - 2], &verts[n - 2..]);
 
         Decomposer::replace_p0(&g, &vs0[..1])
     }
@@ -1500,7 +1219,7 @@ impl<G: GraphLike> Decomposer<G> {
 
         let n = verts.len();
 
-        let vs0 = Decomposer::reverse_pivot(&mut g, &verts[..n-2], &verts[n-2..]);
+        let vs0 = Decomposer::reverse_pivot(&mut g, &verts[..n - 2], &verts[n - 2..]);
 
         Decomposer::replace_p1(&g, &vs0[..1])
     }
@@ -1521,74 +1240,6 @@ impl<G: GraphLike> Decomposer<G> {
 
         // Cut decomposition
         Decomposer::replace_p0(&g, &[w])
-    }
-
-    fn cut_pg_1(g: &G, verts: &[V]) -> G {
-        let mut g = g.clone();
-
-        let x = g.add_vertex(VType::Z);
-
-        for &v in &verts[2..] {
-            g.remove_edge(v, verts[0]);
-            g.add_edge_with_type(x, v, EType::H);
-        }
-
-        let w = g.add_vertex(VType::Z);
-        g.add_edge_with_type(x, w, EType::H);
-        g.add_edge_with_type(verts[0], w, EType::H);
-
-        // Cut decomposition
-        Decomposer::replace_p1(&g, &[w])
-    }
-
-    fn cut_cat4_0(g: &G, verts: &[V]) -> G {
-        let mut g = g.clone();
-
-        // Spider (un)fusing
-        // g.remove_vertex(verts[0]);
-        // let v0 = g.add_vertex(VType::Z);
-        let v1 = g.add_vertex(VType::Z);
-
-        g.remove_edge(verts[0], verts[3]);
-        g.remove_edge(verts[0], verts[4]);
-        // g.add_edge_with_type(verts[1], v0, EType::H);
-        // g.add_edge_with_type(verts[2], v0, EType::H);
-        g.add_edge_with_type(verts[3], v1, EType::H);
-        g.add_edge_with_type(verts[4], v1, EType::H);
-
-        // Identity spider
-        let w = g.add_vertex(VType::Z);
-        // g.add_edge_with_type(v0, w, EType::H);
-        g.add_edge_with_type(v1, w, EType::H);
-        g.add_edge_with_type(verts[0], w, EType::H);
-
-        // Cut decomposition
-        Decomposer::replace_p0(&g, &[w])
-    }
-
-    fn cut_cat4_1(g: &G, verts: &[V]) -> G {
-        let mut g = g.clone();
-
-        // Spider (un)fusing
-        // g.remove_vertex(verts[0]);
-        // let v0 = g.add_vertex(VType::Z);
-        let v1 = g.add_vertex(VType::Z);
-
-        g.remove_edge(verts[0], verts[3]);
-        g.remove_edge(verts[0], verts[4]);
-        // g.add_edge_with_type(verts[1], v0, EType::H);
-        // g.add_edge_with_type(verts[2], v0, EType::H);
-        g.add_edge_with_type(verts[3], v1, EType::H);
-        g.add_edge_with_type(verts[4], v1, EType::H);
-
-        // Identity spider
-        let w = g.add_vertex(VType::Z);
-        // g.add_edge_with_type(v0, w, EType::H);
-        g.add_edge_with_type(v1, w, EType::H);
-        g.add_edge_with_type(verts[0], w, EType::H);
-
-        // Cut decomposition
-        Decomposer::replace_p1(&g, &[w])
     }
 
     // Basically the reverse of LC - basic_rules::local_comp_unchecked
@@ -2129,7 +1780,7 @@ mod tests {
         // let mut all_bs: Vec<V> = Vec::new();
 
         for n in ns {
-            let catn = g.add_cat(n);
+            g.add_cat(n);
         }
 
         let mut d = Decomposer::new(&g);
@@ -2155,69 +1806,4 @@ mod tests {
         let sc = g.to_tensor4()[[]];
         assert_eq!(Scalar::from_scalar(&sc), d2.scalar);
     }
-
-    // #[test]
-    // fn test_split_comp() {
-    //     use crate::circuit::Circuit;
-    //     let c = Circuit::random_pauli_gadget()
-    //         .qubits(10)
-    //         .depth(5)
-    //         .seed(1337)
-    //         .min_weight(2)
-    //         .max_weight(4)
-    //         .build();
-
-    //     // let mut rng = StdRng::seed_from_u64(1337 * 37);
-
-    //     let mut g: Graph = c.to_graph();
-    //     crate::simplify::full_simp(&mut g);
-    //     // let n = g.num_vertices();
-    //     let g2 = g.clone();
-    //     let g3 = g.clone();
-    //     g.append_graph(&g2);
-    //     g.append_graph(&g3);
-    //     let comps = g.component_vertices();
-    //     // let mut g = Graph::new();
-    //     assert_eq!(comps.len(), 3);
-
-    //     let cat3 = g.add_cat(3);
-    //     let mut i = 0;
-    //     for v in g.vertices().collect::<Vec<_>>() {
-    //         if comps[i].contains(&v) {
-    //             g.add_edge(cat3[i+1], v);
-    //             i += 1;
-    //         }
-    //         if i == 3 {
-    //             break;
-    //         }
-    //     }
-
-    //     let mut d = Decomposer::new(&g);
-    //     d.use_cats(true);
-    //     d.with_full_simp();
-    //     let d = d.decomp_parallel(3);
-
-    //     // terms from doing cat decomp
-    //     println!("nterms = {}", d.nterms);
-    //     // assert_eq!(d.nterms, 12);
-
-    //     // let sc = g.to_tensor4()[[]];
-
-    //     // assert_eq!(Scalar::from_scalar(&sc), d.scalar);
-
-    //     let mut d2 = Decomposer::new(&g);
-    //     d2.use_cats(true);
-    //     d2.with_full_simp();
-    //     d2.split_comps(true);
-    //     d2.decomp_all();
-
-    //     // terms from doing cat decomp
-    //     // assert_eq!(d2.nterms, 10);
-
-    //     println!("nterms = {}", d2.nterms);
-
-    //     // let sc = g.to_tensor4()[[]];
-    //     // assert_eq!(Scalar::from_scalar(&sc), d2.scalar);
-
-    // }
 }
